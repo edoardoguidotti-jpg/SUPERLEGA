@@ -1,31 +1,13 @@
-SUPERLEGA V1.4 — MODALITÀ SOLA LETTURA + AGGIORNAMENTO PWA
+SUPERLEGA V1.5 - AGGIORNAMENTO LEGGERO
 
-FILE COMPLETI DA SOSTITUIRE:
+Sostituisci soltanto:
 - src/App.jsx
 - src/App.css
-- src/main.jsx
-- vite.config.js
-- package.json
-- package-lock.json
 
-NON SERVE SUPABASE.
+Non sostituire package.json, package-lock.json, vite.config.js, main.jsx o altri file.
+Non serve modificare Supabase.
 
-NOVITÀ:
-- In modalità admin compare il pulsante “Torna in sola lettura”.
-- Su iPhone il comando è visibile direttamente nell’intestazione.
-- Dopo l’uscita la sessione admin viene chiusa e l’app torna alla Home pubblica.
-- Aggiunta gestione PWA con aggiornamento automatico.
-- L’app installata sulla Home controlla gli aggiornamenti all’apertura, al ritorno in primo piano e ogni ora.
-- Le vecchie cache vengono eliminate automaticamente.
+Commit consigliato:
+V1.5 - compositore formazioni a slot
 
-PROCEDURA:
-1. Sostituire tutti i file mantenendo le cartelle indicate.
-2. Aprire GitHub Desktop.
-3. Commit: V1.4 - modalità sola lettura e aggiornamento PWA
-4. Push origin.
-5. Attendere il deploy Netlify.
-
-Per gli utenti che hanno già aggiunto l’app alla Home:
-- non devono reinstallarla;
-- al primo avvio dopo il deploy potrebbe servire chiuderla completamente e riaprirla una volta;
-- da questa versione in avanti gli aggiornamenti saranno controllati automaticamente.
+Build verificata con npm ci e npm run build.

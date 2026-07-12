@@ -155,29 +155,39 @@ function App() {
   }
 
   function updateFormationSlot(teamName, slotIndex, playerId) {
-    const newPlayer = playerId
+    const nextPlayer = playerId
       ? players.find((item) => String(item.id) === String(playerId))
       : null
 
-    const currentTeam = teamName === 'light' ? lightTeam : darkTeam
-    const targetPlayer = currentTeam[slotIndex]?.player || null
-    const allSlots = [
-      ...lightTeam.map((slot, index) => ({ teamName: 'light', index, slot })),
-      ...darkTeam.map((slot, index) => ({ teamName: 'dark', index, slot })),
-    ]
-    const source = newPlayer
-      ? allSlots.find(({ slot }) => String(slot.player?.id) === String(newPlayer.id))
-      : null
+    if (playerId && !nextPlayer) return
 
-    const updateTeam = (team, currentName) => team.map((slot, index) => {
-      if (currentName === teamName && index === slotIndex) return { ...slot, player: newPlayer }
-      if (source && currentName === source.teamName && index === source.index) return { ...slot, player: targetPlayer }
-      return slot
-    })
+    const lightCopy = lightTeam.map((slot) => ({ ...slot }))
+    const darkCopy = darkTeam.map((slot) => ({ ...slot }))
+    const targetTeam = teamName === 'light' ? lightCopy : darkCopy
+    const targetSlot = targetTeam[slotIndex]
+    const previousPlayer = targetSlot.player
 
-    setLightTeam((team) => updateTeam(team, 'light'))
-    setDarkTeam((team) => updateTeam(team, 'dark'))
+    let sourceTeam = null
+    let sourceIndex = -1
+
+    if (nextPlayer) {
+      sourceIndex = lightCopy.findIndex((slot) => String(slot.player?.id) === String(nextPlayer.id))
+      if (sourceIndex >= 0) sourceTeam = lightCopy
+
+      if (!sourceTeam) {
+        sourceIndex = darkCopy.findIndex((slot) => String(slot.player?.id) === String(nextPlayer.id))
+        if (sourceIndex >= 0) sourceTeam = darkCopy
+      }
+    }
+
+    if (sourceTeam && sourceTeam === targetTeam && sourceIndex === slotIndex) return
+
+    targetSlot.player = nextPlayer
+    if (sourceTeam) sourceTeam[sourceIndex].player = previousPlayer || null
+
     setError('')
+    setLightTeam(lightCopy)
+    setDarkTeam(darkCopy)
   }
 
   function updateFormationRole(teamName, slotIndex, role) {
@@ -567,14 +577,14 @@ function MatchPage({ players, isAdmin, scheduledMatch, scheduledTeams, selectedP
 
       {lightTeam.length === 5 && darkTeam.length === 5 && (
         <>
-          <EditableFootballPitch
+          <FormationComposer
+            players={players}
+            selectedPlayers={selectedPlayers}
             lightTeam={lightTeam}
             darkTeam={darkTeam}
-            selectedPlayers={selectedPlayers}
-            players={players}
             updateFormationSlot={updateFormationSlot}
           />
-          <div className="publish-panel"><div><p className="card-label">{isEditing ? 'MODIFICA IN CORSO' : 'COMPONI LE SQUADRE'}</p><h3>{isEditing ? 'Salva la nuova formazione' : 'Assegna tutti i 10 giocatori'}</h3><p>Tocca un giocatore sul campo per cambiarlo. Se scegli un giocatore già inserito, i due si scambiano automaticamente.</p></div>
+          <div className="publish-panel"><div><p className="card-label">{isEditing ? 'MODIFICA IN CORSO' : 'COMPOSIZIONE FORMAZIONI'}</p><h3>{isEditing ? 'Salva la nuova formazione' : 'Pubblica solo le formazioni'}</h3><p>Tocca un giocatore per sostituirlo. Se ne scegli uno già schierato, i due si scambiano automaticamente.</p></div>
             <div className="publish-actions">{isEditing && <button className="secondary-action" onClick={cancelEditFormation}>Annulla</button>}<button className="save-match" onClick={saveFormation} disabled={saving || !isValidFormation(lightTeam, darkTeam)}>{saving ? 'Salvataggio…' : isEditing ? 'Salva modifiche' : 'Pubblica formazioni'}</button></div>
           </div>
         </>
@@ -583,51 +593,89 @@ function MatchPage({ players, isAdmin, scheduledMatch, scheduledTeams, selectedP
   )
 }
 
-function EditableFootballPitch({ lightTeam, darkTeam, selectedPlayers, players, updateFormationSlot }) {
+function FormationComposer({ players, selectedPlayers, lightTeam, darkTeam, updateFormationSlot }) {
   const availablePlayers = selectedPlayers
     .map((id) => players.find((player) => String(player.id) === String(id)))
     .filter(Boolean)
-    .sort((a, b) => a.name.localeCompare(b.name))
 
-  const renderSlot = (teamName, slot, index) => (
-    <label
-      className={`editable-pitch-slot ${teamName}-player position-${teamName}-${index + 1} ${slot.player ? 'filled' : 'empty'}`}
-      key={`${teamName}-${slot.role}`}
-    >
-      <span className="slot-circle">{slot.player ? slot.player.name.charAt(0).toUpperCase() : '+'}</span>
-      <strong>{slot.player?.name || roleLabel(slot.role)}</strong>
-      <small>{slot.player ? roleLabel(slot.role) : 'Tocca per scegliere'}</small>
+  const filledSlots = [...lightTeam, ...darkTeam].filter((slot) => slot.player).length
+
+  return (
+    <div className="composer-panel">
+      <div className="composer-heading">
+        <div>
+          <p className="card-label">CAMPO FORMAZIONE</p>
+          <h3>Assegna i 10 convocati</h3>
+          <p>{filledSlots}/10 posizioni completate</p>
+        </div>
+        <span className={`composer-counter ${filledSlots === 10 ? 'complete' : ''}`}>{filledSlots}/10</span>
+      </div>
+      <div className="pitch-wrapper">
+        <div className="team-title light-title">CHIARI · ROMBO 1-1-2-1</div>
+        <div className="pitch composer-pitch">
+          <div className="halfway-line" />
+          <div className="center-circle" />
+          <div className="top-area" />
+          <div className="bottom-area" />
+          {lightTeam.map((slot, index) => (
+            <FormationSlot
+              key={`light-slot-${slot.role}`}
+              slot={slot}
+              className={`light-player position-light-${index + 1}`}
+              players={availablePlayers}
+              onChange={(playerId) => updateFormationSlot('light', index, playerId)}
+            />
+          ))}
+          {darkTeam.map((slot, index) => (
+            <FormationSlot
+              key={`dark-slot-${slot.role}`}
+              slot={slot}
+              className={`dark-player position-dark-${index + 1}`}
+              players={availablePlayers}
+              onChange={(playerId) => updateFormationSlot('dark', index, playerId)}
+            />
+          ))}
+        </div>
+        <div className="team-title dark-title">SCURI · ROMBO 1-1-2-1</div>
+      </div>
+      <p className="pitch-help">Tocca il + o il nome del giocatore per aprire la lista dei convocati.</p>
+    </div>
+  )
+}
+
+function FormationSlot({ slot, className, players, onChange }) {
+  return (
+    <label className={`pitch-player formation-slot-on-pitch ${className} ${slot.player ? 'filled' : 'empty'}`}>
+      <span>{slot.player ? slot.player.name.charAt(0).toUpperCase() : '+'}</span>
+      <strong>{slot.player ? slot.player.name : roleLabel(slot.role)}</strong>
+      <small>{roleLabel(slot.role)}</small>
       <select
-        aria-label={`${roleLabel(slot.role)} ${teamName === 'light' ? 'Chiari' : 'Scuri'}`}
-        value={slot.player?.id || ''}
-        onChange={(event) => updateFormationSlot(teamName, index, event.target.value)}
+        aria-label={`${roleLabel(slot.role)}: scegli giocatore`}
+        value={slot.player?.id ?? ''}
+        onChange={(event) => onChange(event.target.value)}
       >
         <option value="">Slot libero</option>
-        {availablePlayers.map((player) => (
-          <option key={player.id} value={player.id}>{player.name}</option>
-        ))}
+        {players.map((player) => <option key={player.id} value={player.id}>{player.name}</option>)}
       </select>
     </label>
   )
+}
 
-  const assignedCount = [...lightTeam, ...darkTeam].filter((slot) => slot.player).length
-
-  return (
-    <div className="pitch-wrapper editable-pitch-wrapper">
-      <div className="composer-status">
-        <div><p className="card-label">COMPOSITORE FORMAZIONI</p><h3>{assignedCount}/10 giocatori assegnati</h3></div>
-        <span>{assignedCount === 10 ? 'Pronta da pubblicare' : 'Completa tutti gli slot'}</span>
+function FormationEditor({ players, lightTeam, darkTeam, updateFormationSlot, updateFormationRole }) {
+  const renderTeam = (title, teamName, team) => (
+    <div className="formation-editor-team"><h4>{title}</h4>{team.map((slot, index) => (
+      <div className="formation-slot" key={`${teamName}-${index}`}>
+        <select value={slot.player.id} onChange={(event) => updateFormationSlot(teamName, index, event.target.value)}>
+          {players.map((player) => <option key={player.id} value={player.id}>{player.name}{!player.active ? ' (disattivato)' : ''}</option>)}
+        </select>
+        <select value={slot.role} onChange={(event) => updateFormationRole(teamName, index, event.target.value)}>
+          {formationRoles.map(([role, label]) => <option key={role} value={role}>{label}</option>)}
+        </select>
       </div>
-      <div className="team-title light-title">CHIARI · ROMBO 1-1-2-1</div>
-      <div className="pitch editable-pitch">
-        <div className="halfway-line" /><div className="center-circle" /><div className="top-area" /><div className="bottom-area" />
-        {lightTeam.map((slot, index) => renderSlot('light', slot, index))}
-        {darkTeam.map((slot, index) => renderSlot('dark', slot, index))}
-      </div>
-      <div className="team-title dark-title">SCURI · ROMBO 1-1-2-1</div>
-      <p className="pitch-help">Tocca uno slot per scegliere o sostituire un convocato.</p>
-    </div>
+    ))}</div>
   )
+
+  return <div className="formation-editor panel"><div className="formation-editor-heading"><p className="card-label">GESTIONE FORMAZIONE</p><h3>Giocatori e ruoli</h3><p>Se un giocatore si cancella, sostituiscilo dal menu. Cambiando un ruolo, i due ruoli vengono scambiati automaticamente.</p></div><div className="formation-editor-grid">{renderTeam('Chiari', 'light', lightTeam)}{renderTeam('Scuri', 'dark', darkTeam)}</div></div>
 }
 
 function FootballPitch({ lightTeam, darkTeam }) {
@@ -657,6 +705,10 @@ function History({ matches, appearances, players, isAdmin, deleteMatch, saving }
   </section>
 }
 
+function assignDefaultRoles(team) {
+  return team.map((player, index) => ({ player, role: formationRoles[index][0] }))
+}
+
 function createEmptyFormation() {
   return formationRoles.map(([role]) => ({ player: null, role }))
 }
@@ -670,9 +722,8 @@ function formationRows(matchId, lightTeam, darkTeam) {
 
 function isValidFormation(lightTeam, darkTeam) {
   if (lightTeam.length !== 5 || darkTeam.length !== 5) return false
-  const slots = [...lightTeam, ...darkTeam]
-  if (slots.some((slot) => !slot.player)) return false
-  const ids = slots.map((slot) => String(slot.player.id))
+  if ([...lightTeam, ...darkTeam].some((slot) => !slot.player)) return false
+  const ids = [...lightTeam, ...darkTeam].map((slot) => String(slot.player.id))
   return new Set(ids).size === 10
 }
 
