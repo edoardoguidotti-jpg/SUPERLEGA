@@ -11,6 +11,16 @@ const tabs = [
   ['history', 'Storico'],
 ]
 
+const formationRoles = [
+  ['goalkeeper', 'Portiere'],
+  ['defender', 'Difensore'],
+  ['left', 'Laterale sinistro'],
+  ['right', 'Laterale destro'],
+  ['striker', 'Attaccante'],
+]
+
+const roleOrder = Object.fromEntries(formationRoles.map(([role], index) => [role, index]))
+
 function App() {
   const [tab, setTab] = useState('home')
   const [players, setPlayers] = useState([])
@@ -29,6 +39,7 @@ function App() {
   const [matchDate, setMatchDate] = useState(getNextMonday())
   const [lightScore, setLightScore] = useState('')
   const [darkScore, setDarkScore] = useState('')
+  const [editingMatchId, setEditingMatchId] = useState(null)
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -98,9 +109,7 @@ function App() {
     const cleanName = newPlayer.trim()
     if (!cleanName) return
 
-    const { error: insertError } = await supabase
-      .from('players')
-      .insert({ name: cleanName })
+    const { error: insertError } = await supabase.from('players').insert({ name: cleanName })
 
     if (insertError) {
       setError(insertError.message)
@@ -127,10 +136,7 @@ function App() {
 
   function toggleSelectedPlayer(playerId) {
     setSelectedPlayers((current) => {
-      if (current.includes(playerId)) {
-        return current.filter((id) => id !== playerId)
-      }
-
+      if (current.includes(playerId)) return current.filter((id) => id !== playerId)
       if (current.length >= 10) return current
       return [...current, playerId]
     })
@@ -142,54 +148,78 @@ function App() {
       return
     }
 
-    setError('')
-    setNotice('')
-
     const selected = selectedPlayers
       .map((id) => players.find((player) => player.id === id))
       .filter(Boolean)
 
-    setLightTeam(selected.filter((_, index) => index % 2 === 0))
-    setDarkTeam(selected.filter((_, index) => index % 2 !== 0))
+    setError('')
+    setNotice('')
+    setLightTeam(assignDefaultRoles(selected.filter((_, index) => index % 2 === 0)))
+    setDarkTeam(assignDefaultRoles(selected.filter((_, index) => index % 2 !== 0)))
   }
 
-  function swapPlayer(playerId, destination) {
-    const sourceTeam = destination === 'light' ? darkTeam : lightTeam
-    const destinationTeam = destination === 'light' ? lightTeam : darkTeam
-    const movingPlayer = sourceTeam.find((player) => player.id === playerId)
-    const swapPlayerTarget = destinationTeam[destinationTeam.length - 1]
+  function updateFormationSlot(teamName, slotIndex, playerId) {
+    const selectedId = Number.isNaN(Number(playerId)) ? playerId : Number(playerId)
+    const usedIds = [...lightTeam, ...darkTeam]
+      .filter((_, index) => !(teamName === 'light' && index === slotIndex))
+      .map((slot) => String(slot.player.id))
 
-    if (!movingPlayer || !swapPlayerTarget) return
-
-    if (destination === 'light') {
-      setLightTeam((team) => [
-        ...team.slice(0, -1),
-        movingPlayer,
-      ])
-      setDarkTeam((team) => [
-        ...team.filter((player) => player.id !== playerId),
-        swapPlayerTarget,
-      ])
-    } else {
-      setDarkTeam((team) => [
-        ...team.slice(0, -1),
-        movingPlayer,
-      ])
-      setLightTeam((team) => [
-        ...team.filter((player) => player.id !== playerId),
-        swapPlayerTarget,
-      ])
+    if (usedIds.includes(String(selectedId))) {
+      setError('Questo giocatore è già presente nella formazione.')
+      return
     }
+
+    const player = players.find((item) => String(item.id) === String(selectedId))
+    if (!player) return
+
+    setError('')
+    const setter = teamName === 'light' ? setLightTeam : setDarkTeam
+    setter((team) => team.map((slot, index) => (index === slotIndex ? { ...slot, player } : slot)))
+  }
+
+  function updateFormationRole(teamName, slotIndex, role) {
+    const setter = teamName === 'light' ? setLightTeam : setDarkTeam
+    setter((team) => {
+      const otherIndex = team.findIndex((slot) => slot.role === role)
+      if (otherIndex === -1 || otherIndex === slotIndex) {
+        return team.map((slot, index) => (index === slotIndex ? { ...slot, role } : slot))
+      }
+
+      const previousRole = team[slotIndex].role
+      return team.map((slot, index) => {
+        if (index === slotIndex) return { ...slot, role }
+        if (index === otherIndex) return { ...slot, role: previousRole }
+        return slot
+      })
+    })
+  }
+
+  function beginEditFormation(match) {
+    const teams = getTeamsForMatch(match, appearances, players)
+    setEditingMatchId(match.id)
+    setMatchDate(toDateInputValue(match.match_date))
+    setSelectedPlayers([...teams.lightTeam, ...teams.darkTeam].map((slot) => slot.player.id))
+    setLightTeam(teams.lightTeam)
+    setDarkTeam(teams.darkTeam)
+    setError('')
+    setNotice('Modifica giocatori e ruoli, poi salva la formazione.')
+    setTab('match')
+  }
+
+  function cancelEditFormation() {
+    resetFormationEditor()
+    setNotice('Modifica annullata.')
   }
 
   async function saveFormation() {
-    if (lightTeam.length !== 5 || darkTeam.length !== 5) {
-      setError('Ogni squadra deve avere esattamente 5 giocatori.')
+    if (!isValidFormation(lightTeam, darkTeam)) {
+      setError('Servono 10 giocatori diversi: 5 Chiari e 5 Scuri.')
       return
     }
 
     const duplicateDate = matches.some(
       (match) =>
+        match.id !== editingMatchId &&
         match.status !== 'completed' &&
         toDateInputValue(match.match_date) === matchDate,
     )
@@ -204,53 +234,57 @@ function App() {
     setNotice('')
 
     const matchDateTime = new Date(`${matchDate}T19:00:00`)
+    let matchId = editingMatchId
 
-    const { data: match, error: matchError } = await supabase
-      .from('matches')
-      .insert({
-        match_date: matchDateTime.toISOString(),
-        light_score: 0,
-        dark_score: 0,
-        status: 'scheduled',
-      })
-      .select()
-      .single()
+    if (editingMatchId) {
+      const { error: matchError } = await supabase
+        .from('matches')
+        .update({ match_date: matchDateTime.toISOString() })
+        .eq('id', editingMatchId)
 
-    if (matchError) {
-      setError(matchError.message)
-      setSaving(false)
-      return
+      if (matchError) return finishWithError(matchError.message)
+
+      const { error: deleteError } = await supabase
+        .from('appearances')
+        .delete()
+        .eq('match_id', editingMatchId)
+
+      if (deleteError) return finishWithError(deleteError.message)
+    } else {
+      const { data: match, error: matchError } = await supabase
+        .from('matches')
+        .insert({
+          match_date: matchDateTime.toISOString(),
+          light_score: 0,
+          dark_score: 0,
+          status: 'scheduled',
+        })
+        .select()
+        .single()
+
+      if (matchError) return finishWithError(matchError.message)
+      matchId = match.id
     }
 
-    const rows = [
-      ...lightTeam.map((player) => ({
-        match_id: match.id,
-        player_id: player.id,
-        team: 'light',
-      })),
-      ...darkTeam.map((player) => ({
-        match_id: match.id,
-        player_id: player.id,
-        team: 'dark',
-      })),
-    ]
-
-    const { error: appearanceError } = await supabase
-      .from('appearances')
-      .insert(rows)
+    const rows = formationRows(matchId, lightTeam, darkTeam)
+    const { error: appearanceError } = await supabase.from('appearances').insert(rows)
 
     if (appearanceError) {
-      await supabase.from('matches').delete().eq('id', match.id)
-      setError(appearanceError.message)
-      setSaving(false)
-      return
+      if (!editingMatchId) await supabase.from('matches').delete().eq('id', matchId)
+      return finishWithError(appearanceError.message)
     }
 
+    const wasEditing = Boolean(editingMatchId)
     resetFormationEditor()
     await loadData()
-    setNotice('Formazioni pubblicate. Ora sono visibili a tutti.')
+    setNotice(wasEditing ? 'Formazione aggiornata e subito visibile a tutti.' : 'Formazioni pubblicate e subito visibili a tutti.')
     setSaving(false)
     setTab('match')
+  }
+
+  function finishWithError(message) {
+    setError(message)
+    setSaving(false)
   }
 
   async function saveResult(matchId) {
@@ -262,12 +296,7 @@ function App() {
     const parsedLightScore = Number(lightScore)
     const parsedDarkScore = Number(darkScore)
 
-    if (
-      !Number.isInteger(parsedLightScore) ||
-      !Number.isInteger(parsedDarkScore) ||
-      parsedLightScore < 0 ||
-      parsedDarkScore < 0
-    ) {
+    if (!Number.isInteger(parsedLightScore) || !Number.isInteger(parsedDarkScore) || parsedLightScore < 0 || parsedDarkScore < 0) {
       setError('Il risultato deve contenere numeri interi positivi.')
       return
     }
@@ -278,18 +307,10 @@ function App() {
 
     const { error: updateError } = await supabase
       .from('matches')
-      .update({
-        light_score: parsedLightScore,
-        dark_score: parsedDarkScore,
-        status: 'completed',
-      })
+      .update({ light_score: parsedLightScore, dark_score: parsedDarkScore, status: 'completed' })
       .eq('id', matchId)
 
-    if (updateError) {
-      setError(updateError.message)
-      setSaving(false)
-      return
-    }
+    if (updateError) return finishWithError(updateError.message)
 
     setLightScore('')
     setDarkScore('')
@@ -299,10 +320,31 @@ function App() {
     setTab('home')
   }
 
+  async function deleteMatch(match) {
+    const label = match.status === 'completed' ? 'questa partita e i relativi punti' : 'questa formazione programmata'
+    if (!window.confirm(`Vuoi davvero eliminare ${label}? L’operazione non può essere annullata.`)) return
+
+    setSaving(true)
+    setError('')
+    setNotice('')
+
+    const { error: appearanceError } = await supabase.from('appearances').delete().eq('match_id', match.id)
+    if (appearanceError) return finishWithError(appearanceError.message)
+
+    const { error: matchError } = await supabase.from('matches').delete().eq('id', match.id)
+    if (matchError) return finishWithError(matchError.message)
+
+    if (editingMatchId === match.id) resetFormationEditor()
+    await loadData()
+    setNotice('Partita eliminata. Classifica, presenze e storico sono stati ricalcolati.')
+    setSaving(false)
+  }
+
   function resetFormationEditor() {
     setSelectedPlayers([])
     setLightTeam([])
     setDarkTeam([])
+    setEditingMatchId(null)
     setMatchDate(getNextMonday())
   }
 
@@ -315,9 +357,7 @@ function App() {
     return players
       .map((player) => {
         const playerAppearances = appearances.filter(
-          (appearance) =>
-            appearance.player_id === player.id &&
-            completedMatchIds.has(appearance.match_id),
+          (appearance) => appearance.player_id === player.id && completedMatchIds.has(appearance.match_id),
         )
 
         let points = 0
@@ -326,10 +366,7 @@ function App() {
         let losses = 0
 
         playerAppearances.forEach((appearance) => {
-          const match = matches.find(
-            (item) => item.id === appearance.match_id && item.status === 'completed',
-          )
-
+          const match = matches.find((item) => item.id === appearance.match_id && item.status === 'completed')
           if (!match) return
 
           if (match.light_score === match.dark_score) {
@@ -351,28 +388,13 @@ function App() {
           }
         })
 
-        return {
-          ...player,
-          appearances: playerAppearances.length,
-          points,
-          wins,
-          draws,
-          losses,
-        }
+        return { ...player, appearances: playerAppearances.length, points, wins, draws, losses }
       })
-      .sort(
-        (a, b) =>
-          b.points - a.points ||
-          b.wins - a.wins ||
-          a.name.localeCompare(b.name),
-      )
+      .sort((a, b) => b.points - a.points || b.wins - a.wins || a.name.localeCompare(b.name))
   }, [players, matches, appearances, completedMatchIds])
 
   const appearanceRanking = useMemo(
-    () =>
-      [...playerStats].sort(
-        (a, b) => b.appearances - a.appearances || a.name.localeCompare(b.name),
-      ),
+    () => [...playerStats].sort((a, b) => b.appearances - a.appearances || a.name.localeCompare(b.name)),
     [playerStats],
   )
 
@@ -380,16 +402,9 @@ function App() {
   const scheduledMatch = [...matches]
     .filter((match) => match.status !== 'completed')
     .sort((a, b) => new Date(a.match_date) - new Date(b.match_date))[0]
+  const scheduledTeams = getTeamsForMatch(scheduledMatch, appearances, players)
 
-  const scheduledTeams = getTeamsForMatch(
-    scheduledMatch,
-    appearances,
-    players,
-  )
-
-  if (loading) {
-    return <div className="loading">Caricamento SUPERLEGA…</div>
-  }
+  if (loading) return <div className="loading">Caricamento SUPERLEGA…</div>
 
   return (
     <div className="app">
@@ -399,30 +414,16 @@ function App() {
           <h1>SUPERLEGA</h1>
           <p className="subtitle">Ogni lunedì alle 19:00</p>
         </div>
-
         <div className="admin-status">
           {session ? (
-            <>
-              <span>Admin attivo</span>
-              <button className="small-button" onClick={logout}>Esci</button>
-            </>
-          ) : (
-            <span>Sola lettura</span>
-          )}
+            <><span>Admin attivo</span><button className="small-button" onClick={logout}>Esci</button></>
+          ) : <span>Sola lettura</span>}
         </div>
       </header>
 
       <nav className="navigation">
         {tabs.map(([id, label]) => (
-          <button
-            key={id}
-            className={tab === id ? 'active' : ''}
-            onClick={() => {
-              setTab(id)
-              setError('')
-              setNotice('')
-            }}
-          >
+          <button key={id} className={tab === id ? 'active' : ''} onClick={() => { setTab(id); setError(''); setNotice('') }}>
             {label}
           </button>
         ))}
@@ -433,182 +434,69 @@ function App() {
 
       <main>
         {tab === 'home' && (
-          <Home
-            latestMatch={latestMatch}
-            scheduledMatch={scheduledMatch}
-            scheduledTeams={scheduledTeams}
-            players={players}
-            appearances={appearances}
-            onNavigate={setTab}
-            isAdmin={Boolean(session)}
-            login={login}
-            email={email}
-            password={password}
-            setEmail={setEmail}
-            setPassword={setPassword}
-          />
+          <Home latestMatch={latestMatch} scheduledMatch={scheduledMatch} scheduledTeams={scheduledTeams} players={players}
+            appearances={appearances} onNavigate={setTab} isAdmin={Boolean(session)} login={login} email={email}
+            password={password} setEmail={setEmail} setPassword={setPassword} />
         )}
-
         {tab === 'players' && (
-          <Players
-            players={players}
-            isAdmin={Boolean(session)}
-            newPlayer={newPlayer}
-            setNewPlayer={setNewPlayer}
-            addPlayer={addPlayer}
-            togglePlayerActive={togglePlayerActive}
-          />
+          <Players players={players} isAdmin={Boolean(session)} newPlayer={newPlayer} setNewPlayer={setNewPlayer}
+            addPlayer={addPlayer} togglePlayerActive={togglePlayerActive} />
         )}
-
         {tab === 'match' && (
-          <MatchPage
-            players={players.filter((player) => player.active)}
-            isAdmin={Boolean(session)}
-            scheduledMatch={scheduledMatch}
-            scheduledTeams={scheduledTeams}
-            selectedPlayers={selectedPlayers}
-            toggleSelectedPlayer={toggleSelectedPlayer}
-            createTeams={createTeams}
-            lightTeam={lightTeam}
-            darkTeam={darkTeam}
-            swapPlayer={swapPlayer}
-            matchDate={matchDate}
-            setMatchDate={setMatchDate}
-            lightScore={lightScore}
-            setLightScore={setLightScore}
-            darkScore={darkScore}
-            setDarkScore={setDarkScore}
-            saveFormation={saveFormation}
-            saveResult={saveResult}
-            saving={saving}
-          />
+          <MatchPage players={players} isAdmin={Boolean(session)} scheduledMatch={scheduledMatch} scheduledTeams={scheduledTeams}
+            selectedPlayers={selectedPlayers} toggleSelectedPlayer={toggleSelectedPlayer} createTeams={createTeams}
+            lightTeam={lightTeam} darkTeam={darkTeam} updateFormationSlot={updateFormationSlot}
+            updateFormationRole={updateFormationRole} matchDate={matchDate} setMatchDate={setMatchDate}
+            lightScore={lightScore} setLightScore={setLightScore} darkScore={darkScore} setDarkScore={setDarkScore}
+            saveFormation={saveFormation} saveResult={saveResult} beginEditFormation={beginEditFormation}
+            cancelEditFormation={cancelEditFormation} deleteMatch={deleteMatch} editingMatchId={editingMatchId} saving={saving} />
         )}
-
-        {tab === 'ranking' && (
-          <Ranking title="Classifica punti" stats={playerStats} type="points" />
-        )}
-
-        {tab === 'appearances' && (
-          <Ranking title="Classifica presenze" stats={appearanceRanking} type="appearances" />
-        )}
-
+        {tab === 'ranking' && <Ranking title="Classifica punti" stats={playerStats} type="points" />}
+        {tab === 'appearances' && <Ranking title="Classifica presenze" stats={appearanceRanking} type="appearances" />}
         {tab === 'history' && (
-          <History matches={matches} appearances={appearances} players={players} />
+          <History matches={matches} appearances={appearances} players={players} isAdmin={Boolean(session)} deleteMatch={deleteMatch} saving={saving} />
         )}
       </main>
     </div>
   )
 }
 
-function Home({
-  latestMatch,
-  scheduledMatch,
-  scheduledTeams,
-  players,
-  appearances,
-  onNavigate,
-  isAdmin,
-  login,
-  email,
-  password,
-  setEmail,
-  setPassword,
-}) {
+function Home({ latestMatch, scheduledMatch, scheduledTeams, players, appearances, onNavigate, isAdmin, login, email, password, setEmail, setPassword }) {
   return (
     <section className="page">
       <div className="hero-card">
         <p className="card-label">PROSSIMA PARTITA</p>
-        <h2>
-          {scheduledMatch ? formatDate(scheduledMatch.match_date) : 'Lunedì alle 19:00'}
-        </h2>
-        <p>
-          {scheduledMatch
-            ? 'Le formazioni sono pubblicate e visibili a tutti.'
-            : isAdmin
-              ? 'Seleziona i presenti e pubblica le formazioni.'
-              : 'Le formazioni non sono ancora state pubblicate.'}
-        </p>
-        <button onClick={() => onNavigate('match')}>
-          {scheduledMatch ? 'Vedi le formazioni' : 'Apri la partita'}
-        </button>
+        <h2>{scheduledMatch ? formatDate(scheduledMatch.match_date) : 'Lunedì alle 19:00'}</h2>
+        <p>{scheduledMatch ? 'Le formazioni sono pubblicate e visibili a tutti.' : isAdmin ? 'Seleziona i presenti e pubblica le formazioni.' : 'Le formazioni non sono ancora state pubblicate.'}</p>
+        <button onClick={() => onNavigate('match')}>{scheduledMatch ? 'Vedi le formazioni' : 'Apri la partita'}</button>
       </div>
 
       {scheduledMatch && (
         <div className="panel formation-preview">
-          <div className="status-row">
-            <div>
-              <p className="card-label">FORMAZIONI PUBBLICATE</p>
-              <h3>Chiari contro Scuri</h3>
-            </div>
-            <span className="status-badge scheduled">Da giocare</span>
-          </div>
-
+          <div className="status-row"><div><p className="card-label">FORMAZIONI PUBBLICATE</p><h3>Chiari contro Scuri</h3></div><span className="status-badge scheduled">Da giocare</span></div>
           <div className="mini-teams">
-            <div>
-              <strong>Chiari</strong>
-              <span>{scheduledTeams.lightTeam.map((player) => player.name).join(' · ')}</span>
-            </div>
-            <div>
-              <strong>Scuri</strong>
-              <span>{scheduledTeams.darkTeam.map((player) => player.name).join(' · ')}</span>
-            </div>
+            <div><strong>Chiari</strong><span>{scheduledTeams.lightTeam.map((slot) => slot.player.name).join(' · ')}</span></div>
+            <div><strong>Scuri</strong><span>{scheduledTeams.darkTeam.map((slot) => slot.player.name).join(' · ')}</span></div>
           </div>
         </div>
       )}
 
       <div className="quick-grid">
-        <button onClick={() => onNavigate('ranking')}>
-          <strong>🏆 Classifica</strong>
-          <span>Punti e vittorie</span>
-        </button>
-        <button onClick={() => onNavigate('appearances')}>
-          <strong>👥 Presenze</strong>
-          <span>Solo partite giocate</span>
-        </button>
-        <button onClick={() => onNavigate('history')}>
-          <strong>📜 Storico</strong>
-          <span>Tutte le partite concluse</span>
-        </button>
-        <button onClick={() => onNavigate('players')}>
-          <strong>⚽ Giocatori</strong>
-          <span>{players.length} registrati</span>
-        </button>
+        <button onClick={() => onNavigate('ranking')}><strong>🏆 Classifica</strong><span>Punti e vittorie</span></button>
+        <button onClick={() => onNavigate('appearances')}><strong>👥 Presenze</strong><span>Solo partite giocate</span></button>
+        <button onClick={() => onNavigate('history')}><strong>📜 Storico</strong><span>Tutte le partite concluse</span></button>
+        <button onClick={() => onNavigate('players')}><strong>⚽ Giocatori</strong><span>{players.length} registrati</span></button>
       </div>
 
       {latestMatch && (
-        <div className="panel">
-          <p className="card-label">ULTIMA PARTITA</p>
-          <div className="score-line">
-            <strong>Chiari</strong>
-            <span>{latestMatch.light_score} - {latestMatch.dark_score}</span>
-            <strong>Scuri</strong>
-          </div>
-          <p>
-            {formatDate(latestMatch.match_date)} ·{' '}
-            {appearances.filter((appearance) => appearance.match_id === latestMatch.id).length}{' '}
-            presenti
-          </p>
-        </div>
+        <div className="panel"><p className="card-label">ULTIMA PARTITA</p><div className="score-line"><strong>Chiari</strong><span>{latestMatch.light_score} - {latestMatch.dark_score}</span><strong>Scuri</strong></div>
+          <p>{formatDate(latestMatch.match_date)} · {appearances.filter((appearance) => appearance.match_id === latestMatch.id).length} presenti</p></div>
       )}
 
       {!isAdmin && (
-        <form className="login-panel" onSubmit={login}>
-          <p className="card-label">ACCESSO ADMIN</p>
-          <h3>Gestisci la SUPERLEGA</h3>
-          <input
-            type="email"
-            placeholder="Email admin"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            required
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            required
-          />
+        <form className="login-panel" onSubmit={login}><p className="card-label">ACCESSO ADMIN</p><h3>Gestisci la SUPERLEGA</h3>
+          <input type="email" placeholder="Email admin" value={email} onChange={(event) => setEmail(event.target.value)} required />
+          <input type="password" placeholder="Password" value={password} onChange={(event) => setPassword(event.target.value)} required />
           <button type="submit">Accedi</button>
         </form>
       )}
@@ -616,212 +504,67 @@ function Home({
   )
 }
 
-function Players({
-  players,
-  isAdmin,
-  newPlayer,
-  setNewPlayer,
-  addPlayer,
-  togglePlayerActive,
-}) {
+function Players({ players, isAdmin, newPlayer, setNewPlayer, addPlayer, togglePlayerActive }) {
   return (
     <section className="page">
-      <div className="page-title">
-        <div>
-          <p className="card-label">ROSA</p>
-          <h2>Giocatori</h2>
-        </div>
-      </div>
-
-      {isAdmin && (
-        <form className="add-player" onSubmit={addPlayer}>
-          <input
-            value={newPlayer}
-            onChange={(event) => setNewPlayer(event.target.value)}
-            placeholder="Nome o soprannome"
-          />
-          <button type="submit">Aggiungi</button>
-        </form>
-      )}
-
+      <div className="page-title"><div><p className="card-label">ROSA</p><h2>Giocatori</h2></div></div>
+      {isAdmin && <form className="add-player" onSubmit={addPlayer}><input value={newPlayer} onChange={(event) => setNewPlayer(event.target.value)} placeholder="Nome o soprannome" /><button type="submit">Aggiungi</button></form>}
       <div className="player-list">
-        {players.map((player) => (
-          <div className={`player-row ${!player.active ? 'inactive' : ''}`} key={player.id}>
-            <div className="avatar">{player.name.charAt(0).toUpperCase()}</div>
-            <div className="player-name">
-              <strong>{player.name}</strong>
-              <span>{player.active ? 'Disponibile' : 'Disattivato'}</span>
-            </div>
-            {isAdmin && (
-              <button className="small-button" onClick={() => togglePlayerActive(player)}>
-                {player.active ? 'Disattiva' : 'Riattiva'}
-              </button>
-            )}
-          </div>
-        ))}
+        {players.map((player) => <div className={`player-row ${!player.active ? 'inactive' : ''}`} key={player.id}><div className="avatar">{player.name.charAt(0).toUpperCase()}</div><div className="player-name"><strong>{player.name}</strong><span>{player.active ? 'Disponibile' : 'Disattivato'}</span></div>{isAdmin && <button className="small-button" onClick={() => togglePlayerActive(player)}>{player.active ? 'Disattiva' : 'Riattiva'}</button>}</div>)}
       </div>
     </section>
   )
 }
 
-function MatchPage({
-  players,
-  isAdmin,
-  scheduledMatch,
-  scheduledTeams,
-  selectedPlayers,
-  toggleSelectedPlayer,
-  createTeams,
-  lightTeam,
-  darkTeam,
-  swapPlayer,
-  matchDate,
-  setMatchDate,
-  lightScore,
-  setLightScore,
-  darkScore,
-  setDarkScore,
-  saveFormation,
-  saveResult,
-  saving,
-}) {
-  if (scheduledMatch) {
+function MatchPage({ players, isAdmin, scheduledMatch, scheduledTeams, selectedPlayers, toggleSelectedPlayer, createTeams, lightTeam, darkTeam,
+  updateFormationSlot, updateFormationRole, matchDate, setMatchDate, lightScore, setLightScore, darkScore, setDarkScore,
+  saveFormation, saveResult, beginEditFormation, cancelEditFormation, deleteMatch, editingMatchId, saving }) {
+  if (scheduledMatch && !editingMatchId) {
     return (
       <section className="page">
-        <div className="page-title">
-          <div>
-            <p className="card-label">FORMAZIONI PUBBLICATE</p>
-            <h2>{formatDate(scheduledMatch.match_date)}</h2>
-          </div>
-          <span className="status-badge scheduled">Da giocare</span>
-        </div>
+        <div className="page-title"><div><p className="card-label">FORMAZIONI PUBBLICATE</p><h2>{formatDate(scheduledMatch.match_date)}</h2></div><span className="status-badge scheduled">Da giocare</span></div>
+        <FootballPitch lightTeam={scheduledTeams.lightTeam} darkTeam={scheduledTeams.darkTeam} />
 
-        <FootballPitch
-          lightTeam={scheduledTeams.lightTeam}
-          darkTeam={scheduledTeams.darkTeam}
-          editable={false}
-        />
-
-        {isAdmin ? (
-          <div className="result-panel">
-            <div className="result-heading">
-              <p className="card-label">DOPO LA PARTITA</p>
-              <h3>Inserisci il risultato</h3>
-              <p>Classifica e presenze si aggiorneranno solo al salvataggio.</p>
-            </div>
-
-            <div className="score-input">
-              <label>Chiari</label>
-              <input
-                type="number"
-                min="0"
-                step="1"
-                value={lightScore}
-                onChange={(event) => setLightScore(event.target.value)}
-              />
-            </div>
-
-            <span className="score-divider">-</span>
-
-            <div className="score-input">
-              <label>Scuri</label>
-              <input
-                type="number"
-                min="0"
-                step="1"
-                value={darkScore}
-                onChange={(event) => setDarkScore(event.target.value)}
-              />
-            </div>
-
-            <button
-              className="save-match"
-              onClick={() => saveResult(scheduledMatch.id)}
-              disabled={saving}
-            >
-              {saving ? 'Salvataggio…' : 'Salva risultato e aggiorna classifica'}
-            </button>
-          </div>
-        ) : (
-          <div className="panel waiting-result">
-            <p className="card-label">PARTITA DA GIOCARE</p>
-            <h3>Il risultato sarà inserito dopo la partita</h3>
-            <p>Fino ad allora classifica e presenze restano invariate.</p>
+        {isAdmin && (
+          <div className="match-admin-actions">
+            <button className="secondary-action" onClick={() => beginEditFormation(scheduledMatch)}>Modifica formazione</button>
+            <button className="danger-button" onClick={() => deleteMatch(scheduledMatch)} disabled={saving}>Elimina partita</button>
           </div>
         )}
+
+        {isAdmin ? (
+          <div className="result-panel"><div className="result-heading"><p className="card-label">DOPO LA PARTITA</p><h3>Inserisci il risultato</h3><p>Classifica e presenze si aggiorneranno solo al salvataggio.</p></div>
+            <div className="score-input"><label>Chiari</label><input type="number" min="0" step="1" value={lightScore} onChange={(event) => setLightScore(event.target.value)} /></div>
+            <span className="score-divider">-</span>
+            <div className="score-input"><label>Scuri</label><input type="number" min="0" step="1" value={darkScore} onChange={(event) => setDarkScore(event.target.value)} /></div>
+            <button className="save-match" onClick={() => saveResult(scheduledMatch.id)} disabled={saving}>{saving ? 'Salvataggio…' : 'Salva risultato e aggiorna classifica'}</button>
+          </div>
+        ) : <div className="panel waiting-result"><p className="card-label">PARTITA DA GIOCARE</p><h3>Il risultato sarà inserito dopo la partita</h3><p>Fino ad allora classifica e presenze restano invariate.</p></div>}
       </section>
     )
   }
 
-  if (!isAdmin) {
-    return (
-      <section className="page">
-        <div className="panel empty-state">
-          <h2>Formazioni non ancora pubblicate</h2>
-          <p>L’admin le creerà lunedì mattina. Saranno subito visibili qui.</p>
-        </div>
-      </section>
-    )
-  }
+  if (!isAdmin) return <section className="page"><div className="panel empty-state"><h2>Formazioni non ancora pubblicate</h2><p>L’admin le creerà lunedì mattina. Saranno subito visibili qui.</p></div></section>
 
+  const isEditing = Boolean(editingMatchId)
   return (
     <section className="page">
-      <div className="page-title">
-        <div>
-          <p className="card-label">LUNEDÌ ORE 19:00</p>
-          <h2>Crea le formazioni</h2>
-        </div>
-        <input
-          className="date-input"
-          type="date"
-          value={matchDate}
-          onChange={(event) => setMatchDate(event.target.value)}
-        />
+      <div className="page-title"><div><p className="card-label">LUNEDÌ ORE 19:00</p><h2>{isEditing ? 'Modifica formazione' : 'Crea le formazioni'}</h2></div>
+        <input className="date-input" type="date" value={matchDate} onChange={(event) => setMatchDate(event.target.value)} />
       </div>
 
-      <div className="panel">
-        <div className="selection-header">
-          <div>
-            <h3>Seleziona i 10 presenti</h3>
-            <p>{selectedPlayers.length}/10 selezionati</p>
-          </div>
-          <button onClick={createTeams}>Crea squadre</button>
+      {!isEditing && lightTeam.length === 0 && (
+        <div className="panel"><div className="selection-header"><div><h3>Seleziona i 10 presenti</h3><p>{selectedPlayers.length}/10 selezionati</p></div><button onClick={createTeams}>Crea squadre</button></div>
+          <div className="selection-grid">{players.filter((player) => player.active).map((player) => { const selected = selectedPlayers.includes(player.id); return <button key={player.id} className={selected ? 'selected-player' : ''} onClick={() => toggleSelectedPlayer(player.id)}>{selected ? '✓ ' : ''}{player.name}</button> })}</div>
         </div>
-
-        <div className="selection-grid">
-          {players.map((player) => {
-            const selected = selectedPlayers.includes(player.id)
-            return (
-              <button
-                key={player.id}
-                className={selected ? 'selected-player' : ''}
-                onClick={() => toggleSelectedPlayer(player.id)}
-              >
-                {selected ? '✓ ' : ''}{player.name}
-              </button>
-            )
-          })}
-        </div>
-      </div>
+      )}
 
       {lightTeam.length === 5 && darkTeam.length === 5 && (
         <>
-          <FootballPitch
-            lightTeam={lightTeam}
-            darkTeam={darkTeam}
-            editable
-            movePlayer={swapPlayer}
-          />
-
-          <div className="publish-panel">
-            <div>
-              <p className="card-label">PRIMO PASSAGGIO</p>
-              <h3>Pubblica solo le formazioni</h3>
-              <p>Il risultato verrà inserito separatamente dopo la partita.</p>
-            </div>
-            <button className="save-match" onClick={saveFormation} disabled={saving}>
-              {saving ? 'Pubblicazione…' : 'Pubblica formazioni'}
-            </button>
+          <FootballPitch lightTeam={lightTeam} darkTeam={darkTeam} />
+          <FormationEditor players={players} lightTeam={lightTeam} darkTeam={darkTeam} updateFormationSlot={updateFormationSlot} updateFormationRole={updateFormationRole} />
+          <div className="publish-panel"><div><p className="card-label">{isEditing ? 'MODIFICA IN CORSO' : 'PRIMO PASSAGGIO'}</p><h3>{isEditing ? 'Salva la nuova formazione' : 'Pubblica solo le formazioni'}</h3><p>Puoi cambiare giocatori e ruoli prima del salvataggio.</p></div>
+            <div className="publish-actions">{isEditing && <button className="secondary-action" onClick={cancelEditFormation}>Annulla</button>}<button className="save-match" onClick={saveFormation} disabled={saving}>{saving ? 'Salvataggio…' : isEditing ? 'Salva modifiche' : 'Pubblica formazioni'}</button></div>
           </div>
         </>
       )}
@@ -829,161 +572,85 @@ function MatchPage({
   )
 }
 
-function FootballPitch({ lightTeam, darkTeam, editable = false, movePlayer }) {
-  return (
-    <div className="pitch-wrapper">
-      <div className="team-title light-title">CHIARI · ROMBO 1-1-2-1</div>
-
-      <div className="pitch">
-        <div className="halfway-line" />
-        <div className="center-circle" />
-        <div className="top-area" />
-        <div className="bottom-area" />
-
-        {lightTeam.map((player, index) => (
-          <PitchPlayer
-            key={player.id}
-            player={player}
-            className={`light-player position-light-${index + 1}`}
-            onClick={editable ? () => movePlayer(player.id, 'dark') : undefined}
-          />
-        ))}
-
-        {darkTeam.map((player, index) => (
-          <PitchPlayer
-            key={player.id}
-            player={player}
-            className={`dark-player position-dark-${index + 1}`}
-            onClick={editable ? () => movePlayer(player.id, 'light') : undefined}
-          />
-        ))}
+function FormationEditor({ players, lightTeam, darkTeam, updateFormationSlot, updateFormationRole }) {
+  const renderTeam = (title, teamName, team) => (
+    <div className="formation-editor-team"><h4>{title}</h4>{team.map((slot, index) => (
+      <div className="formation-slot" key={`${teamName}-${index}`}>
+        <select value={slot.player.id} onChange={(event) => updateFormationSlot(teamName, index, event.target.value)}>
+          {players.map((player) => <option key={player.id} value={player.id}>{player.name}{!player.active ? ' (disattivato)' : ''}</option>)}
+        </select>
+        <select value={slot.role} onChange={(event) => updateFormationRole(teamName, index, event.target.value)}>
+          {formationRoles.map(([role, label]) => <option key={role} value={role}>{label}</option>)}
+        </select>
       </div>
+    ))}</div>
+  )
 
-      <div className="team-title dark-title">SCURI · ROMBO 1-1-2-1</div>
+  return <div className="formation-editor panel"><div className="formation-editor-heading"><p className="card-label">GESTIONE FORMAZIONE</p><h3>Giocatori e ruoli</h3><p>Se un giocatore si cancella, sostituiscilo dal menu. Cambiando un ruolo, i due ruoli vengono scambiati automaticamente.</p></div><div className="formation-editor-grid">{renderTeam('Chiari', 'light', lightTeam)}{renderTeam('Scuri', 'dark', darkTeam)}</div></div>
+}
 
-      {editable && (
-        <p className="pitch-help">
-          Tocca un giocatore per scambiarlo con l’ultimo dell’altra squadra.
-        </p>
-      )}
+function FootballPitch({ lightTeam, darkTeam }) {
+  return (
+    <div className="pitch-wrapper"><div className="team-title light-title">CHIARI · ROMBO 1-1-2-1</div>
+      <div className="pitch"><div className="halfway-line" /><div className="center-circle" /><div className="top-area" /><div className="bottom-area" />
+        {lightTeam.map((slot) => <PitchPlayer key={`light-${slot.player.id}-${slot.role}`} player={slot.player} className={`light-player position-light-${roleOrder[slot.role] + 1}`} role={roleLabel(slot.role)} />)}
+        {darkTeam.map((slot) => <PitchPlayer key={`dark-${slot.player.id}-${slot.role}`} player={slot.player} className={`dark-player position-dark-${roleOrder[slot.role] + 1}`} role={roleLabel(slot.role)} />)}
+      </div><div className="team-title dark-title">SCURI · ROMBO 1-1-2-1</div>
     </div>
   )
 }
 
-function PitchPlayer({ player, className, onClick }) {
-  return (
-    <button
-      type="button"
-      className={`pitch-player ${className} ${onClick ? 'editable' : ''}`}
-      onClick={onClick}
-      disabled={!onClick}
-    >
-      <span>{player.name.charAt(0).toUpperCase()}</span>
-      <strong>{player.name}</strong>
-    </button>
-  )
+function PitchPlayer({ player, className, role }) {
+  return <div className={`pitch-player ${className}`}><span>{player.name.charAt(0).toUpperCase()}</span><strong>{player.name}</strong><small>{role}</small></div>
 }
 
 function Ranking({ title, stats, type }) {
-  return (
-    <section className="page">
-      <div className="page-title">
-        <div>
-          <p className="card-label">SUPERLEGA</p>
-          <h2>{title}</h2>
-        </div>
-      </div>
-
-      <div className="ranking-list">
-        {stats.map((player, index) => (
-          <div className="ranking-row" key={player.id}>
-            <div className="position">{index + 1}</div>
-            <div className="avatar">{player.name.charAt(0).toUpperCase()}</div>
-            <div className="ranking-name">
-              <strong>{player.name}</strong>
-              <span>{player.wins}V · {player.draws}N · {player.losses}P</span>
-            </div>
-            <div className="ranking-value">
-              <strong>{type === 'points' ? player.points : player.appearances}</strong>
-              <span>{type === 'points' ? 'punti' : 'presenze'}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  )
+  return <section className="page"><div className="page-title"><div><p className="card-label">SUPERLEGA</p><h2>{title}</h2></div></div><div className="ranking-list">{stats.map((player, index) => <div className="ranking-row" key={player.id}><div className="position">{index + 1}</div><div className="avatar">{player.name.charAt(0).toUpperCase()}</div><div className="ranking-name"><strong>{player.name}</strong><span>{player.wins}V · {player.draws}N · {player.losses}P</span></div><div className="ranking-value"><strong>{type === 'points' ? player.points : player.appearances}</strong><span>{type === 'points' ? 'punti' : 'presenze'}</span></div></div>)}</div></section>
 }
 
-function History({ matches, appearances, players }) {
+function History({ matches, appearances, players, isAdmin, deleteMatch, saving }) {
   const completedMatches = matches.filter((match) => match.status === 'completed')
+  return <section className="page"><div className="page-title"><div><p className="card-label">ARCHIVIO</p><h2>Storico partite</h2></div></div>
+    {completedMatches.length === 0 ? <div className="panel empty-state"><h3>Nessuna partita conclusa</h3><p>Lo storico si riempirà dopo il primo risultato salvato.</p></div> :
+      <div className="history-list">{completedMatches.map((match) => { const teams = getTeamsForMatch(match, appearances, players); return <details className="history-card" key={match.id}><summary><div><strong>{formatDate(match.match_date)}</strong><span>Chiari contro Scuri</span></div><div className="history-score">{match.light_score} - {match.dark_score}</div></summary><div className="history-teams"><div><h4>Chiari</h4>{teams.lightTeam.map((slot) => <span key={slot.player.id}>{slot.player.name} · {roleLabel(slot.role)}</span>)}</div><div><h4>Scuri</h4>{teams.darkTeam.map((slot) => <span key={slot.player.id}>{slot.player.name} · {roleLabel(slot.role)}</span>)}</div></div>{isAdmin && <div className="history-admin"><button className="danger-button" onClick={(event) => { event.preventDefault(); deleteMatch(match) }} disabled={saving}>Elimina definitivamente</button></div>}</details> })}</div>}
+  </section>
+}
 
-  return (
-    <section className="page">
-      <div className="page-title">
-        <div>
-          <p className="card-label">ARCHIVIO</p>
-          <h2>Storico partite</h2>
-        </div>
-      </div>
+function assignDefaultRoles(team) {
+  return team.map((player, index) => ({ player, role: formationRoles[index][0] }))
+}
 
-      {completedMatches.length === 0 ? (
-        <div className="panel empty-state">
-          <h3>Nessuna partita conclusa</h3>
-          <p>Lo storico si riempirà dopo il primo risultato salvato.</p>
-        </div>
-      ) : (
-        <div className="history-list">
-          {completedMatches.map((match) => {
-            const teams = getTeamsForMatch(match, appearances, players)
+function formationRows(matchId, lightTeam, darkTeam) {
+  return [
+    ...lightTeam.map((slot) => ({ match_id: matchId, player_id: slot.player.id, team: 'light', role: slot.role })),
+    ...darkTeam.map((slot) => ({ match_id: matchId, player_id: slot.player.id, team: 'dark', role: slot.role })),
+  ]
+}
 
-            return (
-              <details className="history-card" key={match.id}>
-                <summary>
-                  <div>
-                    <strong>{formatDate(match.match_date)}</strong>
-                    <span>Chiari contro Scuri</span>
-                  </div>
-                  <div className="history-score">
-                    {match.light_score} - {match.dark_score}
-                  </div>
-                </summary>
-
-                <div className="history-teams">
-                  <div>
-                    <h4>Chiari</h4>
-                    {teams.lightTeam.map((player) => <span key={player.id}>{player.name}</span>)}
-                  </div>
-                  <div>
-                    <h4>Scuri</h4>
-                    {teams.darkTeam.map((player) => <span key={player.id}>{player.name}</span>)}
-                  </div>
-                </div>
-              </details>
-            )
-          })}
-        </div>
-      )}
-    </section>
-  )
+function isValidFormation(lightTeam, darkTeam) {
+  if (lightTeam.length !== 5 || darkTeam.length !== 5) return false
+  const ids = [...lightTeam, ...darkTeam].map((slot) => String(slot.player.id))
+  return new Set(ids).size === 10
 }
 
 function getTeamsForMatch(match, appearances, players) {
   if (!match) return { lightTeam: [], darkTeam: [] }
+  const matchAppearances = appearances.filter((appearance) => appearance.match_id === match.id)
 
-  const matchAppearances = appearances.filter(
-    (appearance) => appearance.match_id === match.id,
-  )
+  const mapTeam = (team) => matchAppearances
+    .filter((appearance) => appearance.team === team)
+    .map((appearance, index) => ({
+      player: players.find((player) => player.id === appearance.player_id),
+      role: appearance.role || formationRoles[index]?.[0] || 'striker',
+    }))
+    .filter((slot) => Boolean(slot.player))
+    .sort((a, b) => (roleOrder[a.role] ?? 99) - (roleOrder[b.role] ?? 99))
 
-  const mapTeam = (team) =>
-    matchAppearances
-      .filter((appearance) => appearance.team === team)
-      .map((appearance) => players.find((player) => player.id === appearance.player_id))
-      .filter(Boolean)
+  return { lightTeam: mapTeam('light'), darkTeam: mapTeam('dark') }
+}
 
-  return {
-    lightTeam: mapTeam('light'),
-    darkTeam: mapTeam('dark'),
-  }
+function roleLabel(role) {
+  return formationRoles.find(([value]) => value === role)?.[1] || 'Ruolo'
 }
 
 function getNextMonday() {
@@ -992,28 +659,16 @@ function getNextMonday() {
   const daysUntilMonday = day === 1 ? 0 : (8 - day) % 7
   const monday = new Date(today)
   monday.setDate(today.getDate() + daysUntilMonday)
-
-  const year = monday.getFullYear()
-  const month = String(monday.getMonth() + 1).padStart(2, '0')
-  const date = String(monday.getDate()).padStart(2, '0')
-
-  return `${year}-${month}-${date}`
+  return `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`
 }
 
 function toDateInputValue(date) {
   const value = new Date(date)
-  const year = value.getFullYear()
-  const month = String(value.getMonth() + 1).padStart(2, '0')
-  const day = String(value.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
 }
 
 function formatDate(date) {
-  return new Intl.DateTimeFormat('it-IT', {
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
-  }).format(new Date(date))
+  return new Intl.DateTimeFormat('it-IT', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(date))
 }
 
 export default App

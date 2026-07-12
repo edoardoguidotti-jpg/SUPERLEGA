@@ -1,0 +1,26 @@
+SUPERLEGA V1.2
+
+FILE COMPLETI DA SOSTITUIRE:
+- src/App.jsx
+- src/App.css
+
+FILE NUOVO DA AGGIUNGERE:
+- supabase-v1.2.sql
+
+PRIMA DI FARE COMMIT/PUSH:
+1. Apri Supabase.
+2. Vai in SQL Editor.
+3. Incolla ed esegui tutto il contenuto di supabase-v1.2.sql UNA SOLA VOLTA.
+4. Sostituisci i due file nella cartella src del progetto.
+5. Copia anche supabase-v1.2.sql nella cartella principale del progetto, così resta nello storico.
+6. GitHub Desktop: Commit "V1.2 - modifica formazioni e cancellazione partite".
+7. Push origin.
+8. Netlify aggiorna automaticamente.
+
+FUNZIONI:
+- Modifica formazione già pubblicata.
+- Sostituzione giocatori.
+- Modifica e scambio ruoli sul campo.
+- Eliminazione formazione programmata.
+- Eliminazione partite concluse dallo storico.
+- Ricalcolo automatico di classifica e presenze dopo eliminazione.

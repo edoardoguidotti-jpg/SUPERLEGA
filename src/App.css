@@ -796,3 +796,124 @@ h2 {
     padding: 18px;
   }
 }
+
+/* SUPERLEGA V1.2 */
+.match-admin-actions,
+.publish-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.match-admin-actions {
+  margin: 16px 0 22px;
+}
+
+.secondary-action,
+.danger-button {
+  border: 0;
+  border-radius: 12px;
+  padding: 12px 16px;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.secondary-action {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.danger-button {
+  background: #9f2035;
+  color: #fff;
+}
+
+.danger-button:disabled,
+.secondary-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.formation-editor {
+  margin-top: 18px;
+}
+
+.formation-editor-heading {
+  margin-bottom: 18px;
+}
+
+.formation-editor-heading h3,
+.formation-editor-team h4 {
+  margin: 4px 0 6px;
+}
+
+.formation-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.formation-editor-team {
+  display: grid;
+  gap: 10px;
+}
+
+.formation-slot {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 8px;
+}
+
+.formation-slot select {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  background: rgba(8, 18, 34, 0.82);
+  color: #fff;
+  padding: 11px 10px;
+  font: inherit;
+}
+
+.pitch-player small {
+  display: block;
+  max-width: 90px;
+  margin-top: 2px;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 9px;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-admin {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 18px 18px;
+}
+
+@media (max-width: 720px) {
+  .formation-editor-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .formation-slot {
+    grid-template-columns: 1fr;
+  }
+
+  .match-admin-actions,
+  .publish-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .match-admin-actions button,
+  .publish-actions button {
+    width: 100%;
+  }
+}
