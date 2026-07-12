@@ -134,6 +134,53 @@ function App() {
     await loadData()
   }
 
+  async function deletePlayer(player) {
+    const playerAppearances = appearances.filter((appearance) => appearance.player_id === player.id)
+    const scheduledAppearance = playerAppearances.find((appearance) => {
+      const match = matches.find((item) => item.id === appearance.match_id)
+      return match && match.status !== 'completed'
+    })
+
+    if (scheduledAppearance) {
+      setError('Questo giocatore è presente nella formazione da giocare. Prima modifica la formazione oppure elimina la partita programmata.')
+      setTab('match')
+      return
+    }
+
+    const historyWarning = playerAppearances.length > 0
+      ? ` Verranno eliminate anche ${playerAppearances.length} presenze dallo storico e le statistiche saranno ricalcolate.`
+      : ''
+
+    if (!window.confirm(`Vuoi eliminare definitivamente ${player.name}?${historyWarning} L’operazione non può essere annullata.`)) return
+
+    setSaving(true)
+    setError('')
+    setNotice('')
+
+    if (playerAppearances.length > 0) {
+      const { error: appearanceError } = await supabase
+        .from('appearances')
+        .delete()
+        .eq('player_id', player.id)
+
+      if (appearanceError) return finishWithError(appearanceError.message)
+    }
+
+    const { error: playerError } = await supabase
+      .from('players')
+      .delete()
+      .eq('id', player.id)
+
+    if (playerError) return finishWithError(playerError.message)
+
+    setSelectedPlayers((current) => current.filter((id) => id !== player.id))
+    setLightTeam((current) => current.filter((slot) => slot.player.id !== player.id))
+    setDarkTeam((current) => current.filter((slot) => slot.player.id !== player.id))
+    await loadData()
+    setNotice(`${player.name} è stato eliminato definitivamente.`)
+    setSaving(false)
+  }
+
   function toggleSelectedPlayer(playerId) {
     setSelectedPlayers((current) => {
       if (current.includes(playerId)) return current.filter((id) => id !== playerId)
@@ -443,7 +490,7 @@ function App() {
         )}
         {tab === 'players' && (
           <Players players={players} isAdmin={Boolean(session)} newPlayer={newPlayer} setNewPlayer={setNewPlayer}
-            addPlayer={addPlayer} togglePlayerActive={togglePlayerActive} />
+            addPlayer={addPlayer} togglePlayerActive={togglePlayerActive} deletePlayer={deletePlayer} saving={saving} />
         )}
         {tab === 'match' && (
           <MatchPage players={players} isAdmin={Boolean(session)} scheduledMatch={scheduledMatch} scheduledTeams={scheduledTeams}
@@ -507,13 +554,24 @@ function Home({ latestMatch, scheduledMatch, scheduledTeams, players, appearance
   )
 }
 
-function Players({ players, isAdmin, newPlayer, setNewPlayer, addPlayer, togglePlayerActive }) {
+function Players({ players, isAdmin, newPlayer, setNewPlayer, addPlayer, togglePlayerActive, deletePlayer, saving }) {
   return (
     <section className="page">
       <div className="page-title"><div><p className="card-label">ROSA</p><h2>Giocatori</h2></div></div>
       {isAdmin && <form className="add-player" onSubmit={addPlayer}><input value={newPlayer} onChange={(event) => setNewPlayer(event.target.value)} placeholder="Nome o soprannome" /><button type="submit">Aggiungi</button></form>}
       <div className="player-list">
-        {players.map((player) => <div className={`player-row ${!player.active ? 'inactive' : ''}`} key={player.id}><div className="avatar">{player.name.charAt(0).toUpperCase()}</div><div className="player-name"><strong>{player.name}</strong><span>{player.active ? 'Disponibile' : 'Disattivato'}</span></div>{isAdmin && <button className="small-button" onClick={() => togglePlayerActive(player)}>{player.active ? 'Disattiva' : 'Riattiva'}</button>}</div>)}
+        {players.map((player) => (
+          <div className={`player-row ${!player.active ? 'inactive' : ''}`} key={player.id}>
+            <div className="avatar">{player.name.charAt(0).toUpperCase()}</div>
+            <div className="player-name"><strong>{player.name}</strong><span>{player.active ? 'Disponibile' : 'Disattivato'}</span></div>
+            {isAdmin && (
+              <div className="player-actions">
+                <button className="small-button" onClick={() => togglePlayerActive(player)} disabled={saving}>{player.active ? 'Disattiva' : 'Riattiva'}</button>
+                <button className="delete-player-button" onClick={() => deletePlayer(player)} disabled={saving}>Elimina</button>
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </section>
   )

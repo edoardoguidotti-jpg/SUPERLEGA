@@ -301,6 +301,28 @@ h2 {
   font-weight: 800;
 }
 
+.player-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 7px;
+}
+
+.delete-player-button {
+  padding: 8px 10px;
+  border: 1px solid rgba(239, 68, 68, 0.55);
+  border-radius: 10px;
+  background: rgba(127, 29, 29, 0.34);
+  color: #fecaca;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.small-button:disabled,
+.delete-player-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .selection-header {
   display: flex;
   align-items: center;
@@ -943,5 +965,17 @@ h2 {
 
   .brand-block {
     align-items: flex-start;
+  }
+}
+
+@media (max-width: 520px) {
+  .player-row {
+    flex-wrap: wrap;
+  }
+
+  .player-actions {
+    width: 100%;
+    justify-content: flex-end;
+    padding-left: 51px;
   }
 }
