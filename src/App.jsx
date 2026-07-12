@@ -101,20 +101,7 @@ function App() {
   }
 
   async function logout() {
-    setSaving(true)
-    setError('')
-    const { error: logoutError } = await supabase.auth.signOut()
-
-    if (logoutError) {
-      setError(logoutError.message)
-    } else {
-      setSession(null)
-      setTab('home')
-      resetFormationEditor()
-      setNotice('Modalità sola lettura attivata.')
-    }
-
-    setSaving(false)
+    await supabase.auth.signOut()
   }
 
   async function addPlayer(event) {
@@ -147,53 +134,6 @@ function App() {
     await loadData()
   }
 
-  async function deletePlayer(player) {
-    const playerAppearances = appearances.filter((appearance) => appearance.player_id === player.id)
-    const scheduledAppearance = playerAppearances.find((appearance) => {
-      const match = matches.find((item) => item.id === appearance.match_id)
-      return match && match.status !== 'completed'
-    })
-
-    if (scheduledAppearance) {
-      setError('Questo giocatore è presente nella formazione da giocare. Prima modifica la formazione oppure elimina la partita programmata.')
-      setTab('match')
-      return
-    }
-
-    const historyWarning = playerAppearances.length > 0
-      ? ` Verranno eliminate anche ${playerAppearances.length} presenze dallo storico e le statistiche saranno ricalcolate.`
-      : ''
-
-    if (!window.confirm(`Vuoi eliminare definitivamente ${player.name}?${historyWarning} L’operazione non può essere annullata.`)) return
-
-    setSaving(true)
-    setError('')
-    setNotice('')
-
-    if (playerAppearances.length > 0) {
-      const { error: appearanceError } = await supabase
-        .from('appearances')
-        .delete()
-        .eq('player_id', player.id)
-
-      if (appearanceError) return finishWithError(appearanceError.message)
-    }
-
-    const { error: playerError } = await supabase
-      .from('players')
-      .delete()
-      .eq('id', player.id)
-
-    if (playerError) return finishWithError(playerError.message)
-
-    setSelectedPlayers((current) => current.filter((id) => id !== player.id))
-    setLightTeam((current) => current.filter((slot) => slot.player.id !== player.id))
-    setDarkTeam((current) => current.filter((slot) => slot.player.id !== player.id))
-    await loadData()
-    setNotice(`${player.name} è stato eliminato definitivamente.`)
-    setSaving(false)
-  }
-
   function toggleSelectedPlayer(playerId) {
     setSelectedPlayers((current) => {
       if (current.includes(playerId)) return current.filter((id) => id !== playerId)
@@ -208,33 +148,36 @@ function App() {
       return
     }
 
-    const selected = selectedPlayers
-      .map((id) => players.find((player) => player.id === id))
-      .filter(Boolean)
-
     setError('')
-    setNotice('')
-    setLightTeam(assignDefaultRoles(selected.filter((_, index) => index % 2 === 0)))
-    setDarkTeam(assignDefaultRoles(selected.filter((_, index) => index % 2 !== 0)))
+    setNotice('Tocca il + su ogni posizione e assegna i 10 convocati.')
+    setLightTeam(createEmptyFormation())
+    setDarkTeam(createEmptyFormation())
   }
 
   function updateFormationSlot(teamName, slotIndex, playerId) {
-    const selectedId = Number.isNaN(Number(playerId)) ? playerId : Number(playerId)
-    const usedIds = [...lightTeam, ...darkTeam]
-      .filter((_, index) => !(teamName === 'light' && index === slotIndex))
-      .map((slot) => String(slot.player.id))
+    const newPlayer = playerId
+      ? players.find((item) => String(item.id) === String(playerId))
+      : null
 
-    if (usedIds.includes(String(selectedId))) {
-      setError('Questo giocatore è già presente nella formazione.')
-      return
-    }
+    const currentTeam = teamName === 'light' ? lightTeam : darkTeam
+    const targetPlayer = currentTeam[slotIndex]?.player || null
+    const allSlots = [
+      ...lightTeam.map((slot, index) => ({ teamName: 'light', index, slot })),
+      ...darkTeam.map((slot, index) => ({ teamName: 'dark', index, slot })),
+    ]
+    const source = newPlayer
+      ? allSlots.find(({ slot }) => String(slot.player?.id) === String(newPlayer.id))
+      : null
 
-    const player = players.find((item) => String(item.id) === String(selectedId))
-    if (!player) return
+    const updateTeam = (team, currentName) => team.map((slot, index) => {
+      if (currentName === teamName && index === slotIndex) return { ...slot, player: newPlayer }
+      if (source && currentName === source.teamName && index === source.index) return { ...slot, player: targetPlayer }
+      return slot
+    })
 
+    setLightTeam((team) => updateTeam(team, 'light'))
+    setDarkTeam((team) => updateTeam(team, 'dark'))
     setError('')
-    const setter = teamName === 'light' ? setLightTeam : setDarkTeam
-    setter((team) => team.map((slot, index) => (index === slotIndex ? { ...slot, player } : slot)))
   }
 
   function updateFormationRole(teamName, slotIndex, role) {
@@ -477,13 +420,10 @@ function App() {
             <p className="subtitle">Ogni lunedì alle 19:00</p>
           </div>
         </div>
-        <div className={`admin-status ${session ? 'is-admin' : 'is-public'}`}>
-          <span className="mode-badge">{session ? '🛠 ADMIN' : '👁 SOLO LETTURA'}</span>
-          {session && (
-            <button className="public-mode-button" onClick={logout} disabled={saving}>
-              {saving ? 'Uscita…' : 'Torna in sola lettura'}
-            </button>
-          )}
+        <div className="admin-status">
+          {session ? (
+            <><span>Admin attivo</span><button className="small-button" onClick={logout}>Esci</button></>
+          ) : <span>Sola lettura</span>}
         </div>
       </header>
 
@@ -506,7 +446,7 @@ function App() {
         )}
         {tab === 'players' && (
           <Players players={players} isAdmin={Boolean(session)} newPlayer={newPlayer} setNewPlayer={setNewPlayer}
-            addPlayer={addPlayer} togglePlayerActive={togglePlayerActive} deletePlayer={deletePlayer} saving={saving} />
+            addPlayer={addPlayer} togglePlayerActive={togglePlayerActive} />
         )}
         {tab === 'match' && (
           <MatchPage players={players} isAdmin={Boolean(session)} scheduledMatch={scheduledMatch} scheduledTeams={scheduledTeams}
@@ -570,24 +510,13 @@ function Home({ latestMatch, scheduledMatch, scheduledTeams, players, appearance
   )
 }
 
-function Players({ players, isAdmin, newPlayer, setNewPlayer, addPlayer, togglePlayerActive, deletePlayer, saving }) {
+function Players({ players, isAdmin, newPlayer, setNewPlayer, addPlayer, togglePlayerActive }) {
   return (
     <section className="page">
       <div className="page-title"><div><p className="card-label">ROSA</p><h2>Giocatori</h2></div></div>
       {isAdmin && <form className="add-player" onSubmit={addPlayer}><input value={newPlayer} onChange={(event) => setNewPlayer(event.target.value)} placeholder="Nome o soprannome" /><button type="submit">Aggiungi</button></form>}
       <div className="player-list">
-        {players.map((player) => (
-          <div className={`player-row ${!player.active ? 'inactive' : ''}`} key={player.id}>
-            <div className="avatar">{player.name.charAt(0).toUpperCase()}</div>
-            <div className="player-name"><strong>{player.name}</strong><span>{player.active ? 'Disponibile' : 'Disattivato'}</span></div>
-            {isAdmin && (
-              <div className="player-actions">
-                <button className="small-button" onClick={() => togglePlayerActive(player)} disabled={saving}>{player.active ? 'Disattiva' : 'Riattiva'}</button>
-                <button className="delete-player-button" onClick={() => deletePlayer(player)} disabled={saving}>Elimina</button>
-              </div>
-            )}
-          </div>
-        ))}
+        {players.map((player) => <div className={`player-row ${!player.active ? 'inactive' : ''}`} key={player.id}><div className="avatar">{player.name.charAt(0).toUpperCase()}</div><div className="player-name"><strong>{player.name}</strong><span>{player.active ? 'Disponibile' : 'Disattivato'}</span></div>{isAdmin && <button className="small-button" onClick={() => togglePlayerActive(player)}>{player.active ? 'Disattiva' : 'Riattiva'}</button>}</div>)}
       </div>
     </section>
   )
@@ -638,10 +567,15 @@ function MatchPage({ players, isAdmin, scheduledMatch, scheduledTeams, selectedP
 
       {lightTeam.length === 5 && darkTeam.length === 5 && (
         <>
-          <FootballPitch lightTeam={lightTeam} darkTeam={darkTeam} />
-          <FormationEditor players={players} lightTeam={lightTeam} darkTeam={darkTeam} updateFormationSlot={updateFormationSlot} updateFormationRole={updateFormationRole} />
-          <div className="publish-panel"><div><p className="card-label">{isEditing ? 'MODIFICA IN CORSO' : 'PRIMO PASSAGGIO'}</p><h3>{isEditing ? 'Salva la nuova formazione' : 'Pubblica solo le formazioni'}</h3><p>Puoi cambiare giocatori e ruoli prima del salvataggio.</p></div>
-            <div className="publish-actions">{isEditing && <button className="secondary-action" onClick={cancelEditFormation}>Annulla</button>}<button className="save-match" onClick={saveFormation} disabled={saving}>{saving ? 'Salvataggio…' : isEditing ? 'Salva modifiche' : 'Pubblica formazioni'}</button></div>
+          <EditableFootballPitch
+            lightTeam={lightTeam}
+            darkTeam={darkTeam}
+            selectedPlayers={selectedPlayers}
+            players={players}
+            updateFormationSlot={updateFormationSlot}
+          />
+          <div className="publish-panel"><div><p className="card-label">{isEditing ? 'MODIFICA IN CORSO' : 'COMPONI LE SQUADRE'}</p><h3>{isEditing ? 'Salva la nuova formazione' : 'Assegna tutti i 10 giocatori'}</h3><p>Tocca un giocatore sul campo per cambiarlo. Se scegli un giocatore già inserito, i due si scambiano automaticamente.</p></div>
+            <div className="publish-actions">{isEditing && <button className="secondary-action" onClick={cancelEditFormation}>Annulla</button>}<button className="save-match" onClick={saveFormation} disabled={saving || !isValidFormation(lightTeam, darkTeam)}>{saving ? 'Salvataggio…' : isEditing ? 'Salva modifiche' : 'Pubblica formazioni'}</button></div>
           </div>
         </>
       )}
@@ -649,21 +583,51 @@ function MatchPage({ players, isAdmin, scheduledMatch, scheduledTeams, selectedP
   )
 }
 
-function FormationEditor({ players, lightTeam, darkTeam, updateFormationSlot, updateFormationRole }) {
-  const renderTeam = (title, teamName, team) => (
-    <div className="formation-editor-team"><h4>{title}</h4>{team.map((slot, index) => (
-      <div className="formation-slot" key={`${teamName}-${index}`}>
-        <select value={slot.player.id} onChange={(event) => updateFormationSlot(teamName, index, event.target.value)}>
-          {players.map((player) => <option key={player.id} value={player.id}>{player.name}{!player.active ? ' (disattivato)' : ''}</option>)}
-        </select>
-        <select value={slot.role} onChange={(event) => updateFormationRole(teamName, index, event.target.value)}>
-          {formationRoles.map(([role, label]) => <option key={role} value={role}>{label}</option>)}
-        </select>
-      </div>
-    ))}</div>
+function EditableFootballPitch({ lightTeam, darkTeam, selectedPlayers, players, updateFormationSlot }) {
+  const availablePlayers = selectedPlayers
+    .map((id) => players.find((player) => String(player.id) === String(id)))
+    .filter(Boolean)
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  const renderSlot = (teamName, slot, index) => (
+    <label
+      className={`editable-pitch-slot ${teamName}-player position-${teamName}-${index + 1} ${slot.player ? 'filled' : 'empty'}`}
+      key={`${teamName}-${slot.role}`}
+    >
+      <span className="slot-circle">{slot.player ? slot.player.name.charAt(0).toUpperCase() : '+'}</span>
+      <strong>{slot.player?.name || roleLabel(slot.role)}</strong>
+      <small>{slot.player ? roleLabel(slot.role) : 'Tocca per scegliere'}</small>
+      <select
+        aria-label={`${roleLabel(slot.role)} ${teamName === 'light' ? 'Chiari' : 'Scuri'}`}
+        value={slot.player?.id || ''}
+        onChange={(event) => updateFormationSlot(teamName, index, event.target.value)}
+      >
+        <option value="">Slot libero</option>
+        {availablePlayers.map((player) => (
+          <option key={player.id} value={player.id}>{player.name}</option>
+        ))}
+      </select>
+    </label>
   )
 
-  return <div className="formation-editor panel"><div className="formation-editor-heading"><p className="card-label">GESTIONE FORMAZIONE</p><h3>Giocatori e ruoli</h3><p>Se un giocatore si cancella, sostituiscilo dal menu. Cambiando un ruolo, i due ruoli vengono scambiati automaticamente.</p></div><div className="formation-editor-grid">{renderTeam('Chiari', 'light', lightTeam)}{renderTeam('Scuri', 'dark', darkTeam)}</div></div>
+  const assignedCount = [...lightTeam, ...darkTeam].filter((slot) => slot.player).length
+
+  return (
+    <div className="pitch-wrapper editable-pitch-wrapper">
+      <div className="composer-status">
+        <div><p className="card-label">COMPOSITORE FORMAZIONI</p><h3>{assignedCount}/10 giocatori assegnati</h3></div>
+        <span>{assignedCount === 10 ? 'Pronta da pubblicare' : 'Completa tutti gli slot'}</span>
+      </div>
+      <div className="team-title light-title">CHIARI · ROMBO 1-1-2-1</div>
+      <div className="pitch editable-pitch">
+        <div className="halfway-line" /><div className="center-circle" /><div className="top-area" /><div className="bottom-area" />
+        {lightTeam.map((slot, index) => renderSlot('light', slot, index))}
+        {darkTeam.map((slot, index) => renderSlot('dark', slot, index))}
+      </div>
+      <div className="team-title dark-title">SCURI · ROMBO 1-1-2-1</div>
+      <p className="pitch-help">Tocca uno slot per scegliere o sostituire un convocato.</p>
+    </div>
+  )
 }
 
 function FootballPitch({ lightTeam, darkTeam }) {
@@ -693,8 +657,8 @@ function History({ matches, appearances, players, isAdmin, deleteMatch, saving }
   </section>
 }
 
-function assignDefaultRoles(team) {
-  return team.map((player, index) => ({ player, role: formationRoles[index][0] }))
+function createEmptyFormation() {
+  return formationRoles.map(([role]) => ({ player: null, role }))
 }
 
 function formationRows(matchId, lightTeam, darkTeam) {
@@ -706,7 +670,9 @@ function formationRows(matchId, lightTeam, darkTeam) {
 
 function isValidFormation(lightTeam, darkTeam) {
   if (lightTeam.length !== 5 || darkTeam.length !== 5) return false
-  const ids = [...lightTeam, ...darkTeam].map((slot) => String(slot.player.id))
+  const slots = [...lightTeam, ...darkTeam]
+  if (slots.some((slot) => !slot.player)) return false
+  const ids = slots.map((slot) => String(slot.player.id))
   return new Set(ids).size === 10
 }
 

@@ -1,25 +1,9 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import { registerSW } from 'virtual:pwa-register'
+import React from 'react'
+import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 
-registerSW({
-  immediate: true,
-  onRegisteredSW(_swUrl, registration) {
-    if (!registration) return
-
-    const checkForUpdates = () => registration.update().catch(() => {})
-    checkForUpdates()
-    window.setInterval(checkForUpdates, 60 * 60 * 1000)
-
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') checkForUpdates()
-    })
-  },
-})
-
-createRoot(document.getElementById('root')).render(
-  <StrictMode>
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
     <App />
-  </StrictMode>,
+  </React.StrictMode>,
 )
