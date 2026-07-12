@@ -1,26 +1,27 @@
-SUPERLEGA V1.2
+SUPERLEGA V1.3 — INSTALLAZIONE
 
-FILE COMPLETI DA SOSTITUIRE:
+1) PRIMA DI COPIARE I FILE
+Apri Supabase > SQL Editor.
+Copia tutto il contenuto di supabase-v1.3.sql e premi RUN.
+Va eseguito una sola volta.
+
+2) SOSTITUISCI / AGGIUNGI QUESTI FILE COMPLETI
 - src/App.jsx
 - src/App.css
+- index.html
+- public/superlega-logo.jpg
+- public/superlega-og.jpg
 
-FILE NUOVO DA AGGIUNGERE:
-- supabase-v1.2.sql
+3) GITHUB DESKTOP
+Commit: V1.3 - modifica formazioni, elimina partite e nuovo logo
+Poi Push origin.
 
-PRIMA DI FARE COMMIT/PUSH:
-1. Apri Supabase.
-2. Vai in SQL Editor.
-3. Incolla ed esegui tutto il contenuto di supabase-v1.2.sql UNA SOLA VOLTA.
-4. Sostituisci i due file nella cartella src del progetto.
-5. Copia anche supabase-v1.2.sql nella cartella principale del progetto, così resta nello storico.
-6. GitHub Desktop: Commit "V1.2 - modifica formazioni e cancellazione partite".
-7. Push origin.
-8. Netlify aggiorna automaticamente.
+4) NETLIFY
+Il deploy parte automaticamente. Se WhatsApp mostra ancora la vecchia anteprima, attendi qualche minuto: WhatsApp conserva la cache dei link.
 
-FUNZIONI:
-- Modifica formazione già pubblicata.
-- Sostituzione giocatori.
-- Modifica e scambio ruoli sul campo.
-- Eliminazione formazione programmata.
-- Eliminazione partite concluse dallo storico.
-- Ricalcolo automatico di classifica e presenze dopo eliminazione.
+DOVE TROVI LE FUNZIONI
+- Partita programmata: tab Partita > pulsante “Modifica formazione”.
+- Durante la modifica: cambia giocatore e ruolo dai menu, poi “Salva modifiche”.
+- Partita programmata: pulsante rosso “Elimina partita”.
+- Partite concluse: tab Storico > apri la partita > “Elimina definitivamente”.
+- Classifica e presenze vengono calcolate solo sulle partite completate rimaste nel database.

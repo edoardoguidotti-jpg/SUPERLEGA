@@ -409,10 +409,13 @@ function App() {
   return (
     <div className="app">
       <header className="header">
-        <div>
-          <p className="eyebrow">IL CALCETTO DEL LUNEDÌ</p>
-          <h1>SUPERLEGA</h1>
-          <p className="subtitle">Ogni lunedì alle 19:00</p>
+        <div className="brand-block">
+          <img className="brand-logo" src="/superlega-logo.jpg" alt="Logo SUPERLEGA" />
+          <div>
+            <p className="eyebrow">IL CALCETTO DEL LUNEDÌ</p>
+            <h1>SUPERLEGA</h1>
+            <p className="subtitle">Ogni lunedì alle 19:00</p>
+          </div>
         </div>
         <div className="admin-status">
           {session ? (
