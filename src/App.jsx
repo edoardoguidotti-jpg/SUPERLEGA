@@ -101,7 +101,20 @@ function App() {
   }
 
   async function logout() {
-    await supabase.auth.signOut()
+    setSaving(true)
+    setError('')
+    const { error: logoutError } = await supabase.auth.signOut()
+
+    if (logoutError) {
+      setError(logoutError.message)
+    } else {
+      setSession(null)
+      setTab('home')
+      resetFormationEditor()
+      setNotice('Modalità sola lettura attivata.')
+    }
+
+    setSaving(false)
   }
 
   async function addPlayer(event) {
@@ -464,10 +477,13 @@ function App() {
             <p className="subtitle">Ogni lunedì alle 19:00</p>
           </div>
         </div>
-        <div className="admin-status">
-          {session ? (
-            <><span>Admin attivo</span><button className="small-button" onClick={logout}>Esci</button></>
-          ) : <span>Sola lettura</span>}
+        <div className={`admin-status ${session ? 'is-admin' : 'is-public'}`}>
+          <span className="mode-badge">{session ? '🛠 ADMIN' : '👁 SOLO LETTURA'}</span>
+          {session && (
+            <button className="public-mode-button" onClick={logout} disabled={saving}>
+              {saving ? 'Uscita…' : 'Torna in sola lettura'}
+            </button>
+          )}
         </div>
       </header>
 

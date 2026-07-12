@@ -1,27 +1,31 @@
-SUPERLEGA V1.3 — INSTALLAZIONE
+SUPERLEGA V1.4 — MODALITÀ SOLA LETTURA + AGGIORNAMENTO PWA
 
-1) PRIMA DI COPIARE I FILE
-Apri Supabase > SQL Editor.
-Copia tutto il contenuto di supabase-v1.3.sql e premi RUN.
-Va eseguito una sola volta.
-
-2) SOSTITUISCI / AGGIUNGI QUESTI FILE COMPLETI
+FILE COMPLETI DA SOSTITUIRE:
 - src/App.jsx
 - src/App.css
-- index.html
-- public/superlega-logo.jpg
-- public/superlega-og.jpg
+- src/main.jsx
+- vite.config.js
+- package.json
+- package-lock.json
 
-3) GITHUB DESKTOP
-Commit: V1.3 - modifica formazioni, elimina partite e nuovo logo
-Poi Push origin.
+NON SERVE SUPABASE.
 
-4) NETLIFY
-Il deploy parte automaticamente. Se WhatsApp mostra ancora la vecchia anteprima, attendi qualche minuto: WhatsApp conserva la cache dei link.
+NOVITÀ:
+- In modalità admin compare il pulsante “Torna in sola lettura”.
+- Su iPhone il comando è visibile direttamente nell’intestazione.
+- Dopo l’uscita la sessione admin viene chiusa e l’app torna alla Home pubblica.
+- Aggiunta gestione PWA con aggiornamento automatico.
+- L’app installata sulla Home controlla gli aggiornamenti all’apertura, al ritorno in primo piano e ogni ora.
+- Le vecchie cache vengono eliminate automaticamente.
 
-DOVE TROVI LE FUNZIONI
-- Partita programmata: tab Partita > pulsante “Modifica formazione”.
-- Durante la modifica: cambia giocatore e ruolo dai menu, poi “Salva modifiche”.
-- Partita programmata: pulsante rosso “Elimina partita”.
-- Partite concluse: tab Storico > apri la partita > “Elimina definitivamente”.
-- Classifica e presenze vengono calcolate solo sulle partite completate rimaste nel database.
+PROCEDURA:
+1. Sostituire tutti i file mantenendo le cartelle indicate.
+2. Aprire GitHub Desktop.
+3. Commit: V1.4 - modalità sola lettura e aggiornamento PWA
+4. Push origin.
+5. Attendere il deploy Netlify.
+
+Per gli utenti che hanno già aggiunto l’app alla Home:
+- non devono reinstallarla;
+- al primo avvio dopo il deploy potrebbe servire chiuderla completamente e riaprirla una volta;
+- da questa versione in avanti gli aggiornamenti saranno controllati automaticamente.
