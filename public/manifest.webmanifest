@@ -1,0 +1,19 @@
+{
+  "name": "SUPERLEGA",
+  "short_name": "SUPERLEGA",
+  "description": "Il calcetto del lunedì: formazioni, risultati, classifica e presenze.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#07111f",
+  "theme_color": "#07111f",
+  "lang": "it",
+  "icons": [
+    {
+      "src": "/superlega-logo.jpg",
+      "sizes": "any",
+      "type": "image/jpeg",
+      "purpose": "any"
+    }
+  ]
+}
