@@ -6,17 +6,17 @@ const supabasePublishableKey =
 
 if (!supabaseUrl) {
   throw new Error(
-    "Variabile VITE_SUPABASE_URL mancante. Controlla le variabili Netlify."
+    "Variabile VITE_SUPABASE_URL mancante. Controlla le variabili Netlify.",
   );
 }
 
 if (!supabasePublishableKey) {
   throw new Error(
-    "Variabile VITE_SUPABASE_PUBLISHABLE_KEY mancante. Controlla le variabili Netlify."
+    "Variabile VITE_SUPABASE_PUBLISHABLE_KEY mancante. Controlla le variabili Netlify.",
   );
 }
 
 export const supabase = createClient(
   supabaseUrl,
-  supabasePublishableKey
+  supabasePublishableKey,
 );
