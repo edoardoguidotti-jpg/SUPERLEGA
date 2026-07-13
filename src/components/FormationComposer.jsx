@@ -63,6 +63,8 @@ export default function FormationComposer({
               }`}
               players={availablePlayers}
               assignedPlayerIds={assignedPlayerIds}
+              teamName="light"
+              slotIndex={index}
               onChange={(playerId) =>
                 updateFormationSlot("light", index, playerId)
               }
@@ -78,6 +80,8 @@ export default function FormationComposer({
               }`}
               players={availablePlayers}
               assignedPlayerIds={assignedPlayerIds}
+              teamName="dark"
+              slotIndex={index}
               onChange={(playerId) =>
                 updateFormationSlot("dark", index, playerId)
               }
@@ -91,8 +95,9 @@ export default function FormationComposer({
       </div>
 
       <p className="pitch-help">
-        Tocca il + o il nome del giocatore per scegliere un
-        convocato.
+        Tocca lo slot per scegliere un convocato. I giocatori già
+        assegnati spariscono dagli altri menu, così vedi subito chi
+        resta da inserire.
       </p>
     </div>
   );
@@ -103,6 +108,8 @@ function FormationSlot({
   className,
   players,
   assignedPlayerIds,
+  teamName,
+  slotIndex,
   onChange,
 }) {
   const currentPlayerId = slot.player?.id
@@ -122,6 +129,8 @@ function FormationSlot({
       className={`pitch-player formation-slot-on-pitch ${className} ${
         slot.player ? "filled" : "empty"
       }`}
+      data-team={teamName}
+      data-slot={slotIndex}
     >
       {slot.player?.photo_url ? (
         <img src={slot.player.photo_url} alt={slot.player.name} />

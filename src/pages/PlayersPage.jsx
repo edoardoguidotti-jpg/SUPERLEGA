@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useId, useState } from "react";
 import PlayerAvatar from "../components/PlayerAvatar";
 
 export default function PlayersPage({
   players,
+  stats,
   adminMode,
   onAddPlayer,
   onTogglePlayerActive,
@@ -12,10 +13,11 @@ export default function PlayersPage({
   const [form, setForm] = useState({
     name: "",
     nickname: "",
-    photo_url: "",
+    photoFile: null,
   });
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState(null);
+  const [selectedPlayerId, setSelectedPlayerId] = useState(null);
 
   function submit(event) {
     event.preventDefault();
@@ -24,19 +26,21 @@ export default function PlayersPage({
         setForm({
           name: "",
           nickname: "",
-          photo_url: "",
+          photoFile: null,
         });
+        event.currentTarget.reset();
       }
     });
   }
 
   function startEdit(player) {
     setEditingId(player.id);
+    setSelectedPlayerId(player.id);
     setEditForm({
       name: player.name || "",
       nickname: player.nickname || "",
       photo_url: player.photo_url || "",
-      vote_pin: player.vote_pin || "",
+      photoFile: null,
     });
   }
 
@@ -79,17 +83,16 @@ export default function PlayersPage({
           </div>
 
           <div className="full-field">
-            <label>URL foto facoltativo</label>
-            <input
-              type="url"
-              value={form.photo_url}
-              onChange={(event) =>
+            <PhotoInput
+              label="Foto facoltativa"
+              file={form.photoFile}
+              onChange={(file) =>
                 setForm((current) => ({
                   ...current,
-                  photo_url: event.target.value,
+                  photoFile: file,
                 }))
               }
-              placeholder="https://..."
+              helper="Da iPhone puoi scegliere una foto dalla libreria. La ridimensioniamo automaticamente in formato quadrato."
             />
           </div>
 
@@ -104,64 +107,83 @@ export default function PlayersPage({
       )}
 
       <div className="player-list">
-        {players.map((player) => (
-          <div
-            className={`player-card ${
-              !player.active ? "inactive" : ""
-            }`}
-            key={player.id}
-          >
+        {players.map((player) => {
+          const playerStats = stats.find(
+            (item) => item.id === player.id,
+          );
+          const isSelected = selectedPlayerId === player.id;
+
+          return (
+            <div
+              className={`player-card ${
+                !player.active ? "inactive" : ""
+              } ${isSelected ? "selected" : ""}`}
+              key={player.id}
+              role="button"
+              tabIndex={0}
+              onClick={() =>
+                setSelectedPlayerId((current) =>
+                  current === player.id ? null : player.id,
+                )
+              }
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  setSelectedPlayerId((current) =>
+                    current === player.id ? null : player.id,
+                  );
+                }
+              }}
+            >
             {editingId === player.id && adminMode ? (
-              <div className="player-edit-grid">
+              <div
+                className="player-edit-grid"
+                onClick={(event) => event.stopPropagation()}
+              >
                 <PlayerAvatar player={player} size="large" />
 
-                <input
-                  value={editForm.name}
-                  onChange={(event) =>
-                    setEditForm((current) => ({
-                      ...current,
-                      name: event.target.value,
-                    }))
-                  }
-                />
+                <div className="player-edit-fields">
+                  <label>
+                    Nome
+                    <input
+                      value={editForm.name}
+                      placeholder="Nome"
+                      onChange={(event) =>
+                        setEditForm((current) => ({
+                          ...current,
+                          name: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
 
-                <input
-                  value={editForm.nickname}
-                  placeholder="Nickname"
-                  onChange={(event) =>
-                    setEditForm((current) => ({
-                      ...current,
-                      nickname: event.target.value,
-                    }))
-                  }
-                />
+                  <label>
+                    Nickname
+                    <input
+                      value={editForm.nickname}
+                      placeholder="Nickname"
+                      onChange={(event) =>
+                        setEditForm((current) => ({
+                          ...current,
+                          nickname: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                </div>
 
-                <input
-                  value={editForm.photo_url}
-                  placeholder="URL foto"
-                  onChange={(event) =>
-                    setEditForm((current) => ({
-                      ...current,
-                      photo_url: event.target.value,
-                    }))
-                  }
-                />
-
-                <input
-                  value={editForm.vote_pin}
-                  inputMode="numeric"
-                  maxLength={4}
-                  placeholder="PIN"
-                  onChange={(event) =>
-                    setEditForm((current) => ({
-                      ...current,
-                      vote_pin: event.target.value.replace(
-                        /\D/g,
-                        "",
-                      ),
-                    }))
-                  }
-                />
+                <div className="full-field player-photo-upload">
+                  <PhotoInput
+                    label="Nuova foto"
+                    file={editForm.photoFile}
+                    onChange={(file) =>
+                      setEditForm((current) => ({
+                        ...current,
+                        photoFile: file,
+                      }))
+                    }
+                    helper="Se non scegli una nuova foto, resta quella attuale. La nuova immagine viene ridimensionata automaticamente."
+                  />
+                </div>
 
                 <div className="player-edit-actions">
                   <button
@@ -212,7 +234,10 @@ export default function PlayersPage({
                 </div>
 
                 {adminMode && (
-                  <div className="player-actions">
+                  <div
+                    className="player-actions"
+                    onClick={(event) => event.stopPropagation()}
+                  >
                     <button
                       type="button"
                       className="small-button"
@@ -234,11 +259,323 @@ export default function PlayersPage({
                     </button>
                   </div>
                 )}
+
+                {isSelected && playerStats && (
+                  <PlayerInlineStats
+                    player={playerStats}
+                    onClose={() => setSelectedPlayerId(null)}
+                  />
+                )}
               </>
             )}
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
     </section>
   );
+}
+
+function PlayerInlineStats({ player, onClose }) {
+  return (
+    <div
+      className="player-inline-detail"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="player-inline-heading">
+        <div>
+          <p className="card-label">SCHEDA GIOCATORE</p>
+          <h3>{player.name}</h3>
+        </div>
+
+        <button
+          type="button"
+          className="small-button"
+          onClick={onClose}
+        >
+          Chiudi
+        </button>
+      </div>
+
+      <div className="player-stat-grid">
+        <Stat label="Presenze" value={player.appearances} />
+        <Stat label="Vittorie" value={player.wins} />
+        <Stat label="Pareggi" value={player.draws} />
+        <Stat label="Sconfitte" value={player.losses} />
+        <Stat label="MVP" value={player.mvpCount} />
+        <Stat label="Punti" value={player.points} />
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value }) {
+  return (
+    <div className="player-stat-card">
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function PhotoInput({ label, file, onChange, helper }) {
+  const inputId = useId();
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [sourceFileName, setSourceFileName] = useState("");
+  const [zoom, setZoom] = useState(1);
+  const [offsetX, setOffsetX] = useState(0);
+  const [offsetY, setOffsetY] = useState(0);
+
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl("");
+      return undefined;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    setPreviewUrl(objectUrl);
+
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
+
+  useEffect(() => {
+    if (!sourceUrl) return undefined;
+
+    return () => URL.revokeObjectURL(sourceUrl);
+  }, [sourceUrl]);
+
+  async function handleFileSelection(selectedFile) {
+    if (!selectedFile) return;
+
+    if (sourceUrl) {
+      URL.revokeObjectURL(sourceUrl);
+    }
+
+    setSourceUrl(URL.createObjectURL(selectedFile));
+    setSourceFileName(selectedFile.name);
+    setZoom(1);
+    setOffsetX(0);
+    setOffsetY(0);
+
+    const croppedFile = await createCroppedPhoto(selectedFile, {
+      zoom: 1,
+      offsetX: 0,
+      offsetY: 0,
+    });
+
+    onChange(croppedFile);
+  }
+
+  async function applyCrop(nextValues = {}) {
+    if (!sourceUrl) return;
+
+    const nextCrop = {
+      zoom,
+      offsetX,
+      offsetY,
+      ...nextValues,
+    };
+
+    const response = await fetch(sourceUrl);
+    const blob = await response.blob();
+    const croppedFile = await createCroppedPhoto(blob, nextCrop);
+    onChange(croppedFile);
+  }
+
+  function updateZoom(value) {
+    const nextZoom = Number(value);
+    setZoom(nextZoom);
+    applyCrop({ zoom: nextZoom });
+  }
+
+  function updateOffsetX(value) {
+    const nextOffsetX = Number(value);
+    setOffsetX(nextOffsetX);
+    applyCrop({ offsetX: nextOffsetX });
+  }
+
+  function updateOffsetY(value) {
+    const nextOffsetY = Number(value);
+    setOffsetY(nextOffsetY);
+    applyCrop({ offsetY: nextOffsetY });
+  }
+
+  return (
+    <div className="photo-input">
+      <label htmlFor={inputId}>{label}</label>
+
+      <div className="photo-input-row">
+        {previewUrl ? (
+          <img
+            className="photo-input-preview"
+            src={previewUrl}
+            alt="Anteprima foto"
+          />
+        ) : (
+          <div className="photo-input-placeholder">+</div>
+        )}
+
+        <div className="photo-input-copy">
+          <input
+            id={inputId}
+            type="file"
+            accept="image/*"
+            onChange={(event) =>
+              handleFileSelection(event.target.files?.[0] || null)
+            }
+          />
+
+          <label className="photo-input-button" htmlFor={inputId}>
+            Scegli foto
+          </label>
+
+          <span>
+            {sourceFileName || file?.name || "Nessuna foto selezionata"}
+          </span>
+        </div>
+      </div>
+
+      {sourceUrl && (
+        <div className="photo-crop-editor">
+          <div
+            className="photo-crop-stage"
+            style={{
+              backgroundImage: `url(${sourceUrl})`,
+              backgroundSize: `${zoom * 100}%`,
+              backgroundPosition: `${50 + offsetX}% ${50 + offsetY}%`,
+            }}
+            aria-label="Anteprima ritaglio foto"
+          />
+
+          <div className="photo-crop-controls">
+            <label>
+              Zoom
+              <input
+                type="range"
+                min="1"
+                max="2.5"
+                step="0.05"
+                value={zoom}
+                onChange={(event) => updateZoom(event.target.value)}
+              />
+            </label>
+
+            <label>
+              Orizzontale
+              <input
+                type="range"
+                min="-40"
+                max="40"
+                step="1"
+                value={offsetX}
+                onChange={(event) =>
+                  updateOffsetX(event.target.value)
+                }
+              />
+            </label>
+
+            <label>
+              Verticale
+              <input
+                type="range"
+                min="-40"
+                max="40"
+                step="1"
+                value={offsetY}
+                onChange={(event) =>
+                  updateOffsetY(event.target.value)
+                }
+              />
+            </label>
+          </div>
+        </div>
+      )}
+
+      <p className="helper-text">{helper}</p>
+    </div>
+  );
+}
+
+async function createCroppedPhoto(fileOrBlob, crop) {
+  const image = await loadImage(fileOrBlob);
+  const outputSize = 900;
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  const zoom = Math.max(1, crop.zoom || 1);
+  const baseSize = Math.min(image.width, image.height) / zoom;
+  const maxX = image.width - baseSize;
+  const maxY = image.height - baseSize;
+  const centerX = maxX / 2;
+  const centerY = maxY / 2;
+  const sourceX = clamp(
+    centerX + (maxX / 2) * ((crop.offsetX || 0) / 40),
+    0,
+    maxX,
+  );
+  const sourceY = clamp(
+    centerY + (maxY / 2) * ((crop.offsetY || 0) / 40),
+    0,
+    maxY,
+  );
+
+  canvas.width = outputSize;
+  canvas.height = outputSize;
+
+  context.drawImage(
+    image,
+    sourceX,
+    sourceY,
+    baseSize,
+    baseSize,
+    0,
+    0,
+    outputSize,
+    outputSize,
+  );
+
+  if (image.close) {
+    image.close();
+  }
+
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (result) => {
+        if (result) {
+          resolve(result);
+        } else {
+          reject(new Error("Ritaglio non riuscito"));
+        }
+      },
+      "image/jpeg",
+      0.86,
+    );
+  });
+
+  return new File([blob], "player-photo.jpg", {
+    type: "image/jpeg",
+  });
+}
+
+async function loadImage(fileOrBlob) {
+  if ("createImageBitmap" in window) {
+    return createImageBitmap(fileOrBlob);
+  }
+
+  const objectUrl = URL.createObjectURL(fileOrBlob);
+
+  try {
+    return await new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = reject;
+      image.src = objectUrl;
+    });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
 }

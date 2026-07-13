@@ -168,12 +168,19 @@ function MainApp() {
     setSaving(true);
     setError("");
 
+    const photoUrl = await uploadPlayerPhoto(
+      form.photoFile,
+      `new-${Date.now()}`,
+    );
+
+    if (photoUrl === false) return false;
+
     const { error: insertError } = await supabase
       .from("players")
       .insert({
         name: cleanName,
         nickname: form.nickname.trim() || null,
-        photo_url: form.photo_url.trim() || null,
+        photo_url: photoUrl || null,
         vote_pin: generateVotePin(),
       });
 
@@ -184,34 +191,35 @@ function MainApp() {
 
     await loadData();
     setSaving(false);
-    setNotice("Giocatore aggiunto con PIN automatico.");
+    setNotice("Giocatore aggiunto.");
     return true;
   }
 
   async function updatePlayer(playerId, values) {
     const cleanName = values.name.trim();
-    const pin = values.vote_pin.trim();
 
     if (!cleanName) {
       setError("Il nome è obbligatorio.");
       return false;
     }
 
-    if (!/^\d{4}$/.test(pin)) {
-      setError("Il PIN deve contenere esattamente 4 cifre.");
-      return false;
-    }
-
     setSaving(true);
     setError("");
+
+    const uploadedPhotoUrl = await uploadPlayerPhoto(
+      values.photoFile,
+      playerId,
+    );
+
+    if (uploadedPhotoUrl === false) return false;
 
     const { error: updateError } = await supabase
       .from("players")
       .update({
         name: cleanName,
         nickname: values.nickname.trim() || null,
-        photo_url: values.photo_url.trim() || null,
-        vote_pin: pin,
+        photo_url:
+          uploadedPhotoUrl || values.photo_url?.trim() || null,
       })
       .eq("id", playerId);
 
@@ -224,6 +232,51 @@ function MainApp() {
     setSaving(false);
     setNotice("Giocatore aggiornato.");
     return true;
+  }
+
+  async function uploadPlayerPhoto(file, playerId) {
+    if (!file) return null;
+
+    if (!file.type.startsWith("image/")) {
+      finishWithError("Puoi caricare solo file immagine.");
+      return false;
+    }
+
+    const maxOriginalSizeMb = 25;
+
+    if (file.size > maxOriginalSizeMb * 1024 * 1024) {
+      finishWithError(
+        `La foto deve pesare meno di ${maxOriginalSizeMb} MB.`,
+      );
+      return false;
+    }
+
+    const uniqueId =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}`;
+    const filePath = `${playerId}/${uniqueId}.jpg`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("player-photos")
+      .upload(filePath, file, {
+        cacheControl: "31536000",
+        upsert: false,
+        contentType: "image/jpeg",
+      });
+
+    if (uploadError) {
+      finishWithError(
+        `Upload foto non riuscito: ${uploadError.message}`,
+      );
+      return false;
+    }
+
+    const { data } = supabase.storage
+      .from("player-photos")
+      .getPublicUrl(filePath);
+
+    return data.publicUrl;
   }
 
   async function togglePlayerActive(player) {
@@ -807,6 +860,7 @@ function MainApp() {
           draws,
           losses,
           mvpCount,
+          points: wins * 3 + draws,
         };
       })
       .sort(
@@ -967,6 +1021,7 @@ function MainApp() {
             onAddPlayer={addPlayer}
             onTogglePlayerActive={togglePlayerActive}
             onUpdatePlayer={updatePlayer}
+            stats={playerStats}
             saving={saving}
           />
         )}
