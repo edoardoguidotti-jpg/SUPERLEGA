@@ -144,3 +144,11 @@ export function generateMvpToken() {
 export function publicAppUrl() {
   return window.location.origin;
 }
+
+export function hasPublishedFormation(match, appearances) {
+  if (!match) return false;
+
+  return appearances.some(
+    (appearance) => appearance.match_id === match.id,
+  );
+}

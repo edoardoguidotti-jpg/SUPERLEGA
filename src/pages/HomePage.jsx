@@ -1,5 +1,6 @@
+import { useEffect, useMemo, useState } from "react";
 import MatchStatusBadge from "../components/MatchStatusBadge";
-import { formatDate } from "../utils";
+import { formatDate, hasPublishedFormation } from "../utils";
 
 export default function HomePage({
   latestMatch,
@@ -8,10 +9,23 @@ export default function HomePage({
   upcomingMatches,
   players,
   appearances,
+  matchSignups,
   onNavigate,
   onOpenMatch,
   adminMode,
 }) {
+  const activeHasFormation = hasPublishedFormation(
+    activeMatch,
+    appearances,
+  );
+  const activeSignupCount = activeMatch
+    ? matchSignups.filter(
+        (signup) =>
+          signup.match_id === activeMatch.id &&
+          signup.status === "confirmed",
+      ).length
+    : 0;
+
   return (
     <section className="page">
       <div className="hero-card">
@@ -27,24 +41,32 @@ export default function HomePage({
 
         <p>
           {activeMatch
-            ? "Le formazioni sono pubblicate e visibili a tutti."
+            ? activeHasFormation
+              ? "Le formazioni sono pubblicate e visibili a tutti."
+              : `Pre-formazione aperta: ${activeSignupCount}/10 convocati.`
             : adminMode
               ? "Crea e pubblica la prossima partita."
               : "Le prossime formazioni saranno pubblicate qui."}
         </p>
 
-        <button
-          type="button"
-          onClick={() =>
-            activeMatch
-              ? onOpenMatch(activeMatch.id)
-              : onNavigate("match")
-          }
-        >
-          {activeMatch
-            ? "Vedi le formazioni"
-            : "Apri la partita"}
-        </button>
+        <div className="hero-actions">
+          {activeMatch && (
+            <Countdown targetDate={activeMatch.match_date} />
+          )}
+
+          <button
+            type="button"
+            onClick={() =>
+              activeMatch
+                ? onOpenMatch(activeMatch.id)
+                : onNavigate("match")
+            }
+          >
+            {activeMatch
+              ? "Vedi le formazioni"
+              : "Apri la partita"}
+          </button>
+        </div>
       </div>
 
       {activeMatch && (
@@ -52,32 +74,61 @@ export default function HomePage({
           <div className="status-row">
             <div>
               <p className="card-label">
-                FORMAZIONI PUBBLICATE
+                {activeHasFormation
+                  ? "FORMAZIONI PUBBLICATE"
+                  : "PRE-FORMAZIONE"}
               </p>
-              <h3>Chiari contro Scuri</h3>
+              <h3>
+                {activeHasFormation
+                  ? "Chiari contro Scuri"
+                  : "Convocati in raccolta"}
+              </h3>
             </div>
             <MatchStatusBadge match={activeMatch} />
           </div>
 
-          <div className="mini-teams">
-            <div>
-              <strong>Chiari</strong>
-              <span>
-                {activeTeams.lightTeam
-                  .map((slot) => slot.player.name)
-                  .join(" · ")}
-              </span>
-            </div>
+          {activeHasFormation ? (
+            <div className="mini-teams">
+              <div>
+                <strong>Chiari</strong>
+                <span>
+                  {activeTeams.lightTeam
+                    .map((slot) => slot.player.name)
+                    .join(" · ")}
+                </span>
+              </div>
 
-            <div>
-              <strong>Scuri</strong>
-              <span>
-                {activeTeams.darkTeam
-                  .map((slot) => slot.player.name)
-                  .join(" · ")}
-              </span>
+              <div>
+                <strong>Scuri</strong>
+                <span>
+                  {activeTeams.darkTeam
+                    .map((slot) => slot.player.name)
+                    .join(" · ")}
+                </span>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="mini-teams">
+              <div>
+                <strong>Convocati</strong>
+                <span>{activeSignupCount}/10 confermati</span>
+              </div>
+
+              <div>
+                <strong>Lista d’attesa</strong>
+                <span>
+                  {
+                    matchSignups.filter(
+                      (signup) =>
+                        signup.match_id === activeMatch.id &&
+                        signup.status === "waiting",
+                    ).length
+                  }{" "}
+                  riserve
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -115,7 +166,14 @@ export default function HomePage({
                   <span>{formatDate(match.match_date)}</span>
                   <strong>Chiari vs Scuri</strong>
                   <small>
-                    Da giocare · {presentCount} convocati
+                    Da giocare ·{" "}
+                    {presentCount ||
+                      matchSignups.filter(
+                        (signup) =>
+                          signup.match_id === match.id &&
+                          signup.status === "confirmed",
+                      ).length}{" "}
+                    convocati
                   </small>
                 </button>
               );
@@ -184,5 +242,33 @@ export default function HomePage({
         </div>
       )}
     </section>
+  );
+}
+
+function Countdown({ targetDate }) {
+  const [now, setNow] = useState(() => new Date());
+  const target = useMemo(() => new Date(targetDate), [targetDate]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNow(new Date());
+    }, 30000);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const diff = Math.max(0, target.getTime() - now.getTime());
+  const totalMinutes = Math.floor(diff / 60000);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+
+  return (
+    <div className="countdown-card">
+      <span>Mancano</span>
+      <strong>
+        {days}g {hours}h {minutes}m
+      </strong>
+    </div>
   );
 }

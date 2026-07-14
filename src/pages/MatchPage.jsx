@@ -1,15 +1,28 @@
+import { useState } from "react";
 import FootballPitch from "../components/FootballPitch";
 import FormationComposer from "../components/FormationComposer";
 import MatchStatusBadge from "../components/MatchStatusBadge";
-import { formatDate, isValidFormation } from "../utils";
+import {
+  formatDate,
+  hasPublishedFormation,
+  isValidFormation,
+} from "../utils";
 
 export default function MatchPage({
   players,
   adminMode,
   activeMatch,
   activeTeams,
+  appearances,
+  matchSignups,
   creatingNewMatch,
   onBeginNewMatch,
+  onCreateSignupMatch,
+  onCopySignupLink,
+  onOpenSignupLink,
+  onReplaceSignup,
+  onUseConfirmedSignups,
+  onRefreshSignups,
   selectedPlayers,
   toggleSelectedPlayer,
   createTeams,
@@ -35,6 +48,17 @@ export default function MatchPage({
   onDeleteMvpVote,
   onCloseMvp,
 }) {
+  const [replacementTargets, setReplacementTargets] = useState({});
+  const hasFormation = hasPublishedFormation(
+    activeMatch,
+    appearances,
+  );
+  const confirmedSignups = matchSignups.filter(
+    (signup) => signup.status === "confirmed",
+  );
+  const waitingSignups = matchSignups.filter(
+    (signup) => signup.status === "waiting",
+  );
   const matchPlayers = [
     ...activeTeams.lightTeam,
     ...activeTeams.darkTeam,
@@ -76,14 +100,43 @@ export default function MatchPage({
           </div>
         </div>
 
-        <FootballPitch
-          lightTeam={activeTeams.lightTeam}
-          darkTeam={activeTeams.darkTeam}
-        />
+        {adminMode && (
+          <SignupAdminPanel
+            match={activeMatch}
+            confirmedSignups={confirmedSignups}
+            waitingSignups={waitingSignups}
+            replacementTargets={replacementTargets}
+            setReplacementTargets={setReplacementTargets}
+            onCopySignupLink={onCopySignupLink}
+            onOpenSignupLink={onOpenSignupLink}
+            onReplaceSignup={onReplaceSignup}
+            onUseConfirmedSignups={onUseConfirmedSignups}
+            onRefreshSignups={onRefreshSignups}
+            saving={saving}
+            hasFormation={hasFormation}
+          />
+        )}
+
+        {hasFormation ? (
+          <FootballPitch
+            lightTeam={activeTeams.lightTeam}
+            darkTeam={activeTeams.darkTeam}
+          />
+        ) : (
+          <div className="panel empty-state">
+            <p className="card-label">PRE-FORMAZIONE</p>
+            <h3>Formazioni non ancora pubblicate</h3>
+            <p>
+              L’admin può raccogliere i 10 convocati dal link
+              WhatsApp, gestire eventuali riserve e poi comporre
+              Chiari e Scuri.
+            </p>
+          </div>
+        )}
 
         {adminMode && (
           <div className="match-admin-actions">
-            {activeMatch.status !== "awaiting_mvp" && (
+            {hasFormation && activeMatch.status !== "awaiting_mvp" && (
               <button
                 type="button"
                 className="secondary-action"
@@ -135,7 +188,7 @@ export default function MatchPage({
           </div>
         )}
 
-        {activeMatch.status === "awaiting_mvp" ? (
+        {activeMatch.status === "awaiting_mvp" && hasFormation ? (
           <>
             <div className="panel mvp-open-panel">
               <p className="card-label">VOTAZIONE APERTA</p>
@@ -203,7 +256,7 @@ export default function MatchPage({
               </div>
             )}
           </>
-        ) : adminMode ? (
+        ) : adminMode && hasFormation ? (
           <div className="result-panel">
             <div className="result-heading">
               <p className="card-label">DOPO LA PARTITA</p>
@@ -306,6 +359,28 @@ export default function MatchPage({
           }
         />
       </div>
+
+      {!isEditing && lightTeam.length === 0 && (
+        <div className="panel signup-create-panel">
+          <div>
+            <p className="card-label">PRIMA DELLE FORMAZIONI</p>
+            <h3>Raccogli convocati e riserve</h3>
+            <p>
+              Crea un link WhatsApp: i primi 10 entrano tra i
+              convocati, gli altri vanno in lista d’attesa.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="secondary-action"
+            onClick={onCreateSignupMatch}
+            disabled={saving}
+          >
+            Crea link iscrizione
+          </button>
+        </div>
+      )}
 
       {!isEditing && lightTeam.length === 0 && (
         <div className="panel">
@@ -423,5 +498,151 @@ export default function MatchPage({
         </>
       )}
     </section>
+  );
+}
+
+function SignupAdminPanel({
+  match,
+  confirmedSignups,
+  waitingSignups,
+  replacementTargets,
+  setReplacementTargets,
+  onCopySignupLink,
+  onOpenSignupLink,
+  onReplaceSignup,
+  onUseConfirmedSignups,
+  onRefreshSignups,
+  saving,
+  hasFormation,
+}) {
+  return (
+    <div className="panel signup-admin-panel">
+      <div className="status-row">
+        <div>
+          <p className="card-label">PRE-FORMAZIONE</p>
+          <h3>
+            Convocati {confirmedSignups.length}/10 · Riserve{" "}
+            {waitingSignups.length}
+          </h3>
+        </div>
+
+        <div className="page-title-actions">
+          <button
+            type="button"
+            className="secondary-action"
+            onClick={() => onCopySignupLink(match)}
+          >
+            Copia link iscrizione
+          </button>
+
+          <button
+            type="button"
+            className="secondary-action"
+            onClick={() => onOpenSignupLink(match)}
+          >
+            Apri link
+          </button>
+
+          <button
+            type="button"
+            className="secondary-action"
+            onClick={onRefreshSignups}
+            disabled={saving}
+          >
+            Aggiorna iscrizioni
+          </button>
+        </div>
+      </div>
+
+      <div className="signup-columns">
+        <SignupList
+          title="Convocati"
+          emptyText="Nessun convocato ancora."
+          signups={confirmedSignups}
+        />
+
+        <div className="signup-list">
+          <h4>Lista d’attesa</h4>
+
+          {waitingSignups.length === 0 ? (
+            <p className="helper-text">Nessuna riserva.</p>
+          ) : (
+            waitingSignups.map((signup) => (
+              <div className="signup-row" key={signup.id}>
+                <strong>{signup.name}</strong>
+
+                <div className="signup-replace-controls">
+                  <select
+                    value={replacementTargets[signup.id] || ""}
+                    onChange={(event) =>
+                      setReplacementTargets((current) => ({
+                        ...current,
+                        [signup.id]: Number(event.target.value),
+                      }))
+                    }
+                  >
+                    <option value="">Sostituisce…</option>
+                    {confirmedSignups.map((confirmed) => (
+                      <option
+                        key={confirmed.id}
+                        value={confirmed.id}
+                      >
+                        {confirmed.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="button"
+                    className="small-button"
+                    disabled={
+                      saving || !replacementTargets[signup.id]
+                    }
+                    onClick={() =>
+                      onReplaceSignup(
+                        signup.id,
+                        replacementTargets[signup.id],
+                      )
+                    }
+                  >
+                    Sostituisci
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {!hasFormation && (
+        <button
+          type="button"
+          className="save-match"
+          disabled={saving || confirmedSignups.length !== 10}
+          onClick={() => onUseConfirmedSignups(match)}
+        >
+          Usa i 10 convocati per comporre le formazioni
+        </button>
+      )}
+    </div>
+  );
+}
+
+function SignupList({ title, signups, emptyText }) {
+  return (
+    <div className="signup-list">
+      <h4>{title}</h4>
+
+      {signups.length === 0 ? (
+        <p className="helper-text">{emptyText}</p>
+      ) : (
+        signups.map((signup, index) => (
+          <div className="signup-row" key={signup.id}>
+            <span>{index + 1}</span>
+            <strong>{signup.name}</strong>
+          </div>
+        ))
+      )}
+    </div>
   );
 }

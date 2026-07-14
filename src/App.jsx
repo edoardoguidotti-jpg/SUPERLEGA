@@ -9,6 +9,7 @@ import MatchPage from "./pages/MatchPage";
 import RankingPage from "./pages/RankingPage";
 import HistoryPage from "./pages/HistoryPage";
 import MvpVotePage from "./pages/MvpVotePage";
+import JoinMatchPage from "./pages/JoinMatchPage";
 import {
   createEmptyFormation,
   formationRows,
@@ -25,9 +26,14 @@ import "./App.css";
 
 function App() {
   const mvpToken = getMvpTokenFromPath();
+  const joinToken = getJoinTokenFromPath();
 
   if (mvpToken) {
     return <MvpVotePage token={mvpToken} />;
+  }
+
+  if (joinToken) {
+    return <JoinMatchPage token={joinToken} />;
   }
 
   return <MainApp />;
@@ -40,6 +46,7 @@ function MainApp() {
   const [appearances, setAppearances] = useState([]);
   const [matchMvps, setMatchMvps] = useState([]);
   const [mvpVotes, setMvpVotes] = useState([]);
+  const [matchSignups, setMatchSignups] = useState([]);
   const [session, setSession] = useState(null);
   const [adminMode, setAdminMode] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
@@ -91,6 +98,7 @@ function MainApp() {
       matchResponse,
       appearanceResponse,
       mvpResponse,
+      signupResponse,
     ] = await Promise.all([
       withTimeout(
         supabase.from("players").select("*").order("name"),
@@ -111,13 +119,23 @@ function MainApp() {
         supabase.from("match_mvps").select("*"),
         "Caricamento MVP troppo lento.",
       ),
+      withTimeout(
+        supabase
+          .from("match_signups")
+          .select("*")
+          .order("created_at", { ascending: true }),
+        "Caricamento iscrizioni troppo lento.",
+      ),
     ]);
 
     const firstError =
       playerResponse.error ||
       matchResponse.error ||
       appearanceResponse.error ||
-      mvpResponse.error;
+      mvpResponse.error ||
+      (isMissingOptionalTable(signupResponse.error)
+        ? null
+        : signupResponse.error);
 
     if (firstError) {
       setError(firstError.message);
@@ -126,6 +144,7 @@ function MainApp() {
       setMatches(matchResponse.data || []);
       setAppearances(appearanceResponse.data || []);
       setMatchMvps(mvpResponse.data || []);
+      setMatchSignups(signupResponse.data || []);
     }
 
     setLoading(false);
@@ -415,6 +434,53 @@ function MainApp() {
     setTab("match");
   }
 
+  async function createSignupMatch() {
+    const duplicateDate = matches.some(
+      (match) =>
+        !isPlayedMatch(match) &&
+        toDateInputValue(match.match_date) === matchDate,
+    );
+
+    if (duplicateDate) {
+      setError("Esiste già una partita aperta per questa data.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    setNotice("");
+
+    const matchDateTime = new Date(`${matchDate}T19:00:00`);
+    const token = generateMvpToken();
+
+    const { data: match, error: matchError } = await supabase
+      .from("matches")
+      .insert({
+        match_date: matchDateTime.toISOString(),
+        light_score: 0,
+        dark_score: 0,
+        status: "scheduled",
+        mvp_status: "not_open",
+        mvp_token: generateMvpToken(),
+        signup_token: token,
+      })
+      .select()
+      .single();
+
+    if (matchError) {
+      finishWithError(matchError.message);
+      return;
+    }
+
+    resetFormationEditor();
+    await loadData();
+    setSelectedMatchId(match.id);
+    setSaving(false);
+    setNotice("Link iscrizione creato e pronto da condividere.");
+    await copySignupLink(match);
+    setTab("match");
+  }
+
   function openMatch(matchId) {
     resetFormationEditor();
     setSelectedMatchId(matchId);
@@ -663,6 +729,119 @@ function MainApp() {
     } catch {
       window.prompt("Copia il messaggio MVP:", text);
     }
+  }
+
+  async function copySignupLink(match) {
+    const currentMatch =
+      matches.find((item) => item.id === match.id) || match;
+    const token = currentMatch.signup_token;
+
+    if (!token) {
+      setError("Token iscrizione non disponibile.");
+      return;
+    }
+
+    const link = `${publicAppUrl()}/join/${token}`;
+    const text = `⚽ SUPERLEGA\n\nIscrizione partita ${toDateInputValue(currentMatch.match_date)} ore 19:00\n\nEntra nel link e conferma presenza 👇\n${link}`;
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setNotice(
+        isLocalApp()
+          ? "Link iscrizione locale copiato: per WhatsApp usa il link dopo il deploy."
+          : "Link iscrizione copiato. Incollalo nel gruppo WhatsApp.",
+      );
+    } catch {
+      window.prompt("Copia il link iscrizione:", text);
+    }
+  }
+
+  function openSignupLink(match) {
+    const currentMatch =
+      matches.find((item) => item.id === match.id) || match;
+    const token = currentMatch.signup_token;
+
+    if (!token) {
+      setError("Token iscrizione non disponibile.");
+      return;
+    }
+
+    window.open(`${publicAppUrl()}/join/${token}`, "_blank");
+  }
+
+  async function replaceSignup(waitingSignupId, confirmedSignupId) {
+    if (!waitingSignupId || !confirmedSignupId) {
+      setError("Scegli convocato e riserva da sostituire.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+
+    const waitingSignup = matchSignups.find(
+      (signup) => signup.id === waitingSignupId,
+    );
+    const confirmedSignup = matchSignups.find(
+      (signup) => signup.id === confirmedSignupId,
+    );
+
+    const { error: demoteError } = await supabase
+      .from("match_signups")
+      .update({ status: "waiting" })
+      .eq("id", confirmedSignupId);
+
+    if (demoteError) {
+      finishWithError(demoteError.message);
+      return;
+    }
+
+    const { error: promoteError } = await supabase
+      .from("match_signups")
+      .update({ status: "confirmed" })
+      .eq("id", waitingSignupId);
+
+    if (promoteError) {
+      await supabase
+        .from("match_signups")
+        .update({ status: "confirmed" })
+        .eq("id", confirmedSignupId);
+      finishWithError(promoteError.message);
+      return;
+    }
+
+    await loadData();
+    setSaving(false);
+    setNotice(
+      `${waitingSignup?.name || "Riserva"} sostituisce ${confirmedSignup?.name || "convocato"}.`,
+    );
+  }
+
+  function useConfirmedSignups(match) {
+    const confirmed = matchSignups
+      .filter(
+        (signup) =>
+          signup.match_id === match.id &&
+          signup.status === "confirmed",
+      )
+      .sort(
+        (a, b) => new Date(a.created_at) - new Date(b.created_at),
+      );
+
+    if (confirmed.length !== 10) {
+      setError("Servono esattamente 10 convocati confermati.");
+      return;
+    }
+
+    setSelectedPlayers(confirmed.map((signup) => signup.player_id));
+    setLightTeam(createEmptyFormation());
+    setDarkTeam(createEmptyFormation());
+    setEditingMatchId(match.id);
+    setMatchDate(toDateInputValue(match.match_date));
+    setSelectedMatchId(match.id);
+    setCreatingNewMatch(false);
+    setError("");
+    setNotice("Convocati caricati. Ora componi Chiari e Scuri.");
+    setTab("match");
   }
 
   function openMvpLink(match) {
@@ -1008,6 +1187,7 @@ function MainApp() {
             upcomingMatches={upcomingMatches}
             players={players}
             appearances={appearances}
+            matchSignups={matchSignups}
             onNavigate={setTab}
             onOpenMatch={openMatch}
             adminMode={adminMode}
@@ -1032,8 +1212,18 @@ function MainApp() {
             adminMode={adminMode}
             activeMatch={matchPageActive}
             activeTeams={activeTeams}
+            appearances={appearances}
+            matchSignups={matchSignups.filter(
+              (signup) => signup.match_id === matchPageActive?.id,
+            )}
             creatingNewMatch={creatingNewMatch}
             onBeginNewMatch={beginNewMatch}
+            onCreateSignupMatch={createSignupMatch}
+            onCopySignupLink={copySignupLink}
+            onOpenSignupLink={openSignupLink}
+            onReplaceSignup={replaceSignup}
+            onUseConfirmedSignups={useConfirmedSignups}
+            onRefreshSignups={loadData}
             selectedPlayers={selectedPlayers}
             toggleSelectedPlayer={toggleSelectedPlayer}
             createTeams={createTeams}
@@ -1093,6 +1283,14 @@ function getMvpTokenFromPath() {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+function getJoinTokenFromPath() {
+  const match = window.location.pathname.match(
+    /^\/join\/([^/]+)\/?$/,
+  );
+
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 function winPercentage(player) {
   if (!player.appearances) return 0;
   return player.wins / player.appearances;
@@ -1112,6 +1310,16 @@ function withTimeout(request, message) {
       }, 8000);
     }),
   ]);
+}
+
+function isMissingOptionalTable(error) {
+  if (!error) return false;
+
+  return (
+    error.code === "42P01" ||
+    error.message?.includes("match_signups") ||
+    error.message?.includes("schema cache")
+  );
 }
 
 function isLocalApp() {
