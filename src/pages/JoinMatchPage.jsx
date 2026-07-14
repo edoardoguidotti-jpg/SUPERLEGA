@@ -4,7 +4,10 @@ import { formatDate } from "../utils";
 
 export default function JoinMatchPage({ token }) {
   const [match, setMatch] = useState(null);
+  const [players, setPlayers] = useState([]);
   const [name, setName] = useState("");
+  const [selectedPlayerId, setSelectedPlayerId] = useState("");
+  const [isNewPlayer, setIsNewPlayer] = useState(false);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -18,11 +21,21 @@ export default function JoinMatchPage({ token }) {
     setLoading(true);
     setError("");
 
-    const { data, error: matchError } = await supabase
-      .from("matches")
-      .select("id, match_date, status, signup_token")
-      .eq("signup_token", token)
-      .maybeSingle();
+    const [
+      { data, error: matchError },
+      { data: playersData, error: playersError },
+    ] = await Promise.all([
+      supabase
+        .from("matches")
+        .select("id, match_date, status, signup_token")
+        .eq("signup_token", token)
+        .maybeSingle(),
+      supabase
+        .from("players")
+        .select("id, name, nickname, active")
+        .eq("active", true)
+        .order("name", { ascending: true }),
+    ]);
 
     if (matchError || !data) {
       setError(matchError?.message || "Link iscrizione non valido.");
@@ -30,17 +43,33 @@ export default function JoinMatchPage({ token }) {
       return;
     }
 
+    if (playersError) {
+      setError(playersError.message);
+      setLoading(false);
+      return;
+    }
+
     setMatch(data);
+    setPlayers(playersData || []);
     setLoading(false);
   }
 
   async function submitSignup(event) {
     event.preventDefault();
 
-    const cleanName = name.trim();
+    const selectedPlayer = players.find(
+      (player) => String(player.id) === selectedPlayerId,
+    );
+    const cleanName = isNewPlayer
+      ? name.trim()
+      : selectedPlayer?.name || "";
 
     if (!cleanName) {
-      setError("Inserisci il tuo nome.");
+      setError(
+        isNewPlayer
+          ? "Inserisci il tuo nome."
+          : "Seleziona il tuo nome dalla lista.",
+      );
       return;
     }
 
@@ -120,6 +149,8 @@ export default function JoinMatchPage({ token }) {
             onClick={() => {
               setResult(null);
               setName("");
+              setSelectedPlayerId("");
+              setIsNewPlayer(false);
               setError("");
             }}
           >
@@ -135,13 +166,60 @@ export default function JoinMatchPage({ token }) {
             automaticamente in lista d’attesa.
           </p>
 
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Nome e cognome"
-            autoComplete="name"
-            required
-          />
+          {isNewPlayer ? (
+            <>
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Nome e cognome"
+                autoComplete="name"
+                required
+              />
+
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => {
+                  setIsNewPlayer(false);
+                  setName("");
+                  setError("");
+                }}
+              >
+                Sono già nella lista
+              </button>
+            </>
+          ) : (
+            <>
+              <select
+                value={selectedPlayerId}
+                onChange={(event) => {
+                  setSelectedPlayerId(event.target.value);
+                  setError("");
+                }}
+                required
+              >
+                <option value="">Scegli il tuo nome</option>
+                {players.map((player) => (
+                  <option key={player.id} value={player.id}>
+                    {player.name}
+                    {player.nickname ? ` (${player.nickname})` : ""}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => {
+                  setIsNewPlayer(true);
+                  setSelectedPlayerId("");
+                  setError("");
+                }}
+              >
+                Non sei nella lista? Aggiungi il tuo nome
+              </button>
+            </>
+          )}
 
           {error && <div className="error">{error}</div>}
 
