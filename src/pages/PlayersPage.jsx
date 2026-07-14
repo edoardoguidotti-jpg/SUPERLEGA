@@ -8,6 +8,7 @@ export default function PlayersPage({
   onAddPlayer,
   onTogglePlayerActive,
   onUpdatePlayer,
+  onDeletePlayer,
   saving,
 }) {
   const [form, setForm] = useState({
@@ -256,6 +257,15 @@ export default function PlayersPage({
                       {player.active
                         ? "Disattiva"
                         : "Riattiva"}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="small-button danger-small"
+                      disabled={saving}
+                      onClick={() => onDeletePlayer(player)}
+                    >
+                      Elimina
                     </button>
                   </div>
                 )}

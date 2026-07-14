@@ -62,6 +62,8 @@ function MainApp() {
   const [lightScore, setLightScore] = useState("");
   const [darkScore, setDarkScore] = useState("");
   const [editingMatchId, setEditingMatchId] = useState(null);
+  const [editingPublishedFormation, setEditingPublishedFormation] =
+    useState(false);
   const [selectedMatchId, setSelectedMatchId] = useState(null);
   const [creatingNewMatch, setCreatingNewMatch] =
     useState(false);
@@ -312,6 +314,34 @@ function MainApp() {
     await loadData();
   }
 
+  async function deletePlayer(player) {
+    const confirmed = window.confirm(
+      `Vuoi eliminare definitivamente ${player.name}?`,
+    );
+
+    if (!confirmed) return false;
+
+    setSaving(true);
+    setError("");
+
+    const { error: deleteError } = await supabase
+      .from("players")
+      .delete()
+      .eq("id", player.id);
+
+    if (deleteError) {
+      finishWithError(
+        "Non posso eliminare questo giocatore perché è già collegato a partite, voti o statistiche. In questo caso usa Disattiva.",
+      );
+      return false;
+    }
+
+    await loadData();
+    setSaving(false);
+    setNotice("Giocatore eliminato.");
+    return true;
+  }
+
   function toggleSelectedPlayer(playerId) {
     setSelectedPlayers((current) => {
       if (current.includes(playerId)) {
@@ -402,6 +432,7 @@ function MainApp() {
     );
 
     setEditingMatchId(match.id);
+    setEditingPublishedFormation(true);
     setMatchDate(toDateInputValue(match.match_date));
     setSelectedPlayers(
       [...teams.lightTeam, ...teams.darkTeam].map(
@@ -424,6 +455,7 @@ function MainApp() {
     setLightTeam([]);
     setDarkTeam([]);
     setEditingMatchId(null);
+    setEditingPublishedFormation(false);
     setMatchDate(getSuggestedMatchDate());
     setLightScore("");
     setDarkScore("");
@@ -816,6 +848,116 @@ function MainApp() {
     );
   }
 
+  async function manuallyReplaceSignup(
+    matchId,
+    confirmedSignupId,
+    incomingPlayerId,
+  ) {
+    if (!matchId || !confirmedSignupId || !incomingPlayerId) {
+      setError("Scegli chi esce e chi entra.");
+      return false;
+    }
+
+    const incomingPlayer = players.find(
+      (player) => String(player.id) === String(incomingPlayerId),
+    );
+    const outgoingSignup = matchSignups.find(
+      (signup) => signup.id === confirmedSignupId,
+    );
+    const existingIncomingSignup = matchSignups.find(
+      (signup) =>
+        signup.match_id === matchId &&
+        String(signup.player_id) === String(incomingPlayerId),
+    );
+
+    if (!incomingPlayer) {
+      setError("Giocatore in entrata non trovato.");
+      return false;
+    }
+
+    if (existingIncomingSignup?.status === "confirmed") {
+      setError("Questo giocatore è già tra i convocati.");
+      return false;
+    }
+
+    setSaving(true);
+    setError("");
+
+    const { error: removeOutgoingError } = await supabase
+      .from("match_signups")
+      .delete()
+      .eq("id", confirmedSignupId);
+
+    if (removeOutgoingError) {
+      finishWithError(removeOutgoingError.message);
+      return false;
+    }
+
+    const incomingWrite = existingIncomingSignup
+      ? supabase
+          .from("match_signups")
+          .update({
+            status: "confirmed",
+            name: incomingPlayer.name,
+          })
+          .eq("id", existingIncomingSignup.id)
+      : supabase.from("match_signups").insert({
+          match_id: matchId,
+          player_id: incomingPlayer.id,
+          name: incomingPlayer.name,
+          status: "confirmed",
+        });
+
+    const { error: incomingError } = await incomingWrite;
+
+    if (incomingError) {
+      if (outgoingSignup) {
+        await supabase.from("match_signups").insert({
+          match_id: outgoingSignup.match_id,
+          player_id: outgoingSignup.player_id,
+          name: outgoingSignup.name,
+          status: "confirmed",
+        });
+      }
+
+      finishWithError(incomingError.message);
+      return false;
+    }
+
+    await loadData();
+    setSaving(false);
+    setNotice(
+      `${incomingPlayer.name} sostituisce ${outgoingSignup?.name || "convocato"}.`,
+    );
+    return true;
+  }
+
+  async function removeMatchSignup(signup) {
+    const confirmed = window.confirm(
+      `Vuoi rimuovere ${signup.name} dalla lista della partita?`,
+    );
+
+    if (!confirmed) return false;
+
+    setSaving(true);
+    setError("");
+
+    const { error: deleteError } = await supabase
+      .from("match_signups")
+      .delete()
+      .eq("id", signup.id);
+
+    if (deleteError) {
+      finishWithError(deleteError.message);
+      return false;
+    }
+
+    await loadData();
+    setSaving(false);
+    setNotice(`${signup.name} rimosso dalla lista.`);
+    return true;
+  }
+
   function useConfirmedSignups(match) {
     const confirmed = matchSignups
       .filter(
@@ -836,6 +978,7 @@ function MainApp() {
     setLightTeam(createEmptyFormation());
     setDarkTeam(createEmptyFormation());
     setEditingMatchId(match.id);
+    setEditingPublishedFormation(false);
     setMatchDate(toDateInputValue(match.match_date));
     setSelectedMatchId(match.id);
     setCreatingNewMatch(false);
@@ -953,6 +1096,7 @@ function MainApp() {
     setLightTeam([]);
     setDarkTeam([]);
     setEditingMatchId(null);
+    setEditingPublishedFormation(false);
     setMatchDate(getNextMonday());
     setCreatingNewMatch(false);
   }
@@ -1201,6 +1345,7 @@ function MainApp() {
             onAddPlayer={addPlayer}
             onTogglePlayerActive={togglePlayerActive}
             onUpdatePlayer={updatePlayer}
+            onDeletePlayer={deletePlayer}
             stats={playerStats}
             saving={saving}
           />
@@ -1222,6 +1367,8 @@ function MainApp() {
             onCopySignupLink={copySignupLink}
             onOpenSignupLink={openSignupLink}
             onReplaceSignup={replaceSignup}
+            onManualReplaceSignup={manuallyReplaceSignup}
+            onRemoveSignup={removeMatchSignup}
             onUseConfirmedSignups={useConfirmedSignups}
             onRefreshSignups={loadData}
             selectedPlayers={selectedPlayers}
@@ -1242,6 +1389,7 @@ function MainApp() {
             cancelEditFormation={cancelEditFormation}
             deleteMatch={deleteMatch}
             editingMatchId={editingMatchId}
+            editingPublishedFormation={editingPublishedFormation}
             saving={saving}
             mvpVotes={mvpVotes}
             onCopyMvpLink={copyMvpLink}

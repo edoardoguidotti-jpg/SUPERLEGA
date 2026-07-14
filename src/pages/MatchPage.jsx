@@ -21,6 +21,8 @@ export default function MatchPage({
   onCopySignupLink,
   onOpenSignupLink,
   onReplaceSignup,
+  onManualReplaceSignup,
+  onRemoveSignup,
   onUseConfirmedSignups,
   onRefreshSignups,
   selectedPlayers,
@@ -41,6 +43,7 @@ export default function MatchPage({
   cancelEditFormation,
   deleteMatch,
   editingMatchId,
+  editingPublishedFormation,
   saving,
   mvpVotes,
   onCopyMvpLink,
@@ -49,6 +52,10 @@ export default function MatchPage({
   onCloseMvp,
 }) {
   const [replacementTargets, setReplacementTargets] = useState({});
+  const [manualReplacement, setManualReplacement] = useState({
+    outSignupId: "",
+    inPlayerId: "",
+  });
   const hasFormation = hasPublishedFormation(
     activeMatch,
     appearances,
@@ -110,10 +117,15 @@ export default function MatchPage({
             onCopySignupLink={onCopySignupLink}
             onOpenSignupLink={onOpenSignupLink}
             onReplaceSignup={onReplaceSignup}
+            onManualReplaceSignup={onManualReplaceSignup}
+            onRemoveSignup={onRemoveSignup}
             onUseConfirmedSignups={onUseConfirmedSignups}
             onRefreshSignups={onRefreshSignups}
             saving={saving}
             hasFormation={hasFormation}
+            players={players}
+            manualReplacement={manualReplacement}
+            setManualReplacement={setManualReplacement}
           />
         )}
 
@@ -435,19 +447,24 @@ export default function MatchPage({
             lightTeam={lightTeam}
             darkTeam={darkTeam}
             updateFormationSlot={updateFormationSlot}
+            useAllActivePlayers={editingPublishedFormation}
           />
 
           <div className="publish-panel">
             <div>
               <p className="card-label">
                 {isEditing
-                  ? "MODIFICA IN CORSO"
+                  ? editingPublishedFormation
+                    ? "MODIFICA IN CORSO"
+                    : "COMPOSIZIONE DA CONVOCATI"
                   : "COMPOSIZIONE FORMAZIONI"}
               </p>
 
               <h3>
                 {isEditing
-                  ? "Salva la nuova formazione"
+                  ? editingPublishedFormation
+                    ? "Salva la nuova formazione"
+                    : "Pubblica le formazioni"
                   : "Pubblica le formazioni"}
               </h3>
 
@@ -507,14 +524,29 @@ function SignupAdminPanel({
   waitingSignups,
   replacementTargets,
   setReplacementTargets,
+  manualReplacement,
+  setManualReplacement,
   onCopySignupLink,
   onOpenSignupLink,
   onReplaceSignup,
+  onManualReplaceSignup,
+  onRemoveSignup,
   onUseConfirmedSignups,
   onRefreshSignups,
   saving,
   hasFormation,
+  players,
 }) {
+  const confirmedPlayerIds = new Set(
+    confirmedSignups.map((signup) => String(signup.player_id)),
+  );
+  const manualReplacementPlayers = players
+    .filter(
+      (player) =>
+        player.active && !confirmedPlayerIds.has(String(player.id)),
+    )
+    .sort((a, b) => a.name.localeCompare(b.name, "it"));
+
   return (
     <div className="panel signup-admin-panel">
       <div className="status-row">
@@ -568,8 +600,19 @@ function SignupAdminPanel({
             <p className="helper-text">Nessuna riserva.</p>
           ) : (
             waitingSignups.map((signup) => (
-              <div className="signup-row" key={signup.id}>
-                <strong>{signup.name}</strong>
+              <div className="signup-waiting-row" key={signup.id}>
+                <div className="signup-waiting-heading">
+                  <strong>{signup.name}</strong>
+
+                  <button
+                    type="button"
+                    className="small-button danger-small"
+                    disabled={saving}
+                    onClick={() => onRemoveSignup(signup)}
+                  >
+                    Rimuovi
+                  </button>
+                </div>
 
                 <div className="signup-replace-controls">
                   <select
@@ -612,6 +655,88 @@ function SignupAdminPanel({
             ))
           )}
         </div>
+      </div>
+
+      <div className="signup-manual-replace">
+        <div>
+          <p className="card-label">SOSTITUZIONE MANUALE</p>
+          <h4>Cambia un convocato senza link WhatsApp</h4>
+          <p className="helper-text">
+            Usa questa opzione se uno rinuncia e vuoi inserire
+            direttamente un altro giocatore dalla rosa.
+          </p>
+        </div>
+
+        <div className="signup-manual-controls">
+          <select
+            value={manualReplacement.outSignupId}
+            onChange={(event) =>
+              setManualReplacement((current) => ({
+                ...current,
+                outSignupId: event.target.value,
+              }))
+            }
+          >
+            <option value="">Giocatore che esce…</option>
+            {confirmedSignups.map((signup) => (
+              <option key={signup.id} value={signup.id}>
+                {signup.name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={manualReplacement.inPlayerId}
+            onChange={(event) =>
+              setManualReplacement((current) => ({
+                ...current,
+                inPlayerId: event.target.value,
+              }))
+            }
+          >
+            <option value="">Giocatore che entra…</option>
+            {manualReplacementPlayers.map((player) => (
+              <option key={player.id} value={player.id}>
+                {player.name}
+                {player.nickname ? ` (${player.nickname})` : ""}
+              </option>
+            ))}
+          </select>
+
+          <button
+            type="button"
+            className="secondary-action"
+            disabled={
+              saving ||
+              !manualReplacement.outSignupId ||
+              !manualReplacement.inPlayerId
+            }
+            onClick={async () => {
+              const success = await onManualReplaceSignup(
+                match.id,
+                Number(manualReplacement.outSignupId),
+                Number(manualReplacement.inPlayerId),
+              );
+
+              if (success) {
+                setManualReplacement({
+                  outSignupId: "",
+                  inPlayerId: "",
+                });
+              }
+            }}
+          >
+            Sostituisci manualmente
+          </button>
+        </div>
+
+        {hasFormation && (
+          <p className="helper-text">
+            Se le formazioni sono già pubblicate, dopo la sostituzione
+            premi anche Modifica formazione per aggiornare Chiari e
+            Scuri.
+          </p>
+        )}
       </div>
 
       {!hasFormation && (

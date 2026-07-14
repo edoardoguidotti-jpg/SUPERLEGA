@@ -6,14 +6,31 @@ export default function FormationComposer({
   lightTeam,
   darkTeam,
   updateFormationSlot,
+  useAllActivePlayers = false,
 }) {
-  const availablePlayers = selectedPlayers
+  const assignedPlayers = [...lightTeam, ...darkTeam]
+    .map((slot) => slot.player)
+    .filter(Boolean);
+  const selectedPlayerList = selectedPlayers
     .map((id) =>
       players.find(
         (player) => String(player.id) === String(id),
       ),
     )
     .filter(Boolean);
+  const basePlayers = useAllActivePlayers
+    ? players.filter((player) => player.active)
+    : selectedPlayerList;
+  const availablePlayers = [
+    ...basePlayers,
+    ...assignedPlayers.filter(
+      (assignedPlayer) =>
+        !basePlayers.some(
+          (player) =>
+            String(player.id) === String(assignedPlayer.id),
+        ),
+    ),
+  ].sort((a, b) => a.name.localeCompare(b.name, "it"));
 
   const filledSlots = [...lightTeam, ...darkTeam].filter(
     (slot) => slot.player,
@@ -30,7 +47,11 @@ export default function FormationComposer({
       <div className="composer-heading">
         <div>
           <p className="card-label">CAMPO FORMAZIONE</p>
-          <h3>Assegna i 10 convocati</h3>
+          <h3>
+            {useAllActivePlayers
+              ? "Modifica con tutta la rosa"
+              : "Assegna i 10 convocati"}
+          </h3>
           <p>{filledSlots}/10 posizioni completate</p>
         </div>
 
@@ -95,7 +116,7 @@ export default function FormationComposer({
       </div>
 
       <p className="pitch-help">
-        Tocca lo slot per scegliere un convocato. I giocatori già
+        Tocca lo slot per scegliere un giocatore. I giocatori già
         assegnati spariscono dagli altri menu, così vedi subito chi
         resta da inserire.
       </p>
